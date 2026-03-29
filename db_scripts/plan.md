@@ -63,26 +63,43 @@ Or run the full sequence with a single command:
 
 ## Environment-Specific Connection Commands
 
-### Local (XE / XEPDB1)
+### Cloud (Oracle ATP — wallet) — PRIMARY
+
+The wallet lives at `garden-roots-backend/wallet/`. The TNS names are defined in
+`wallet/tnsnames.ora`. Use `gardenroots2026_tp` for the application workload.
+
+**SQL*Plus:**
+```bash
+export TNS_ADMIN=/absolute/path/to/garden-roots-backend/wallet
+sqlplus ADMIN/<atp_password>@gardenroots2026_tp
+@run_all.sql
+```
+
+**SQLcl:**
+```bash
+export TNS_ADMIN=/absolute/path/to/garden-roots-backend/wallet
+sql ADMIN/<atp_password>@gardenroots2026_tp
+@run_all.sql
+```
+
+Available TNS aliases (all point to the same ATP instance):
+
+| Alias | Use case |
+|-------|----------|
+| `gardenroots2026_tp` | Application / API (recommended) |
+| `gardenroots2026_tpurgent` | Priority OLTP |
+| `gardenroots2026_high` | Reporting / analytics (max resources) |
+| `gardenroots2026_medium` | Batch jobs |
+| `gardenroots2026_low` | Background / dev queries |
+
+### Local (Oracle XE / XEPDB1) — development only
 ```bash
 sqlplus system/Oracle123@localhost:1521/XEPDB1
 @run_all.sql
 ```
 
-### Oracle Cloud ATP (wallet)
-```bash
-sqlplus admin/<password>@<wallet_dsn>
-@run_all.sql
-```
-
-### SQLcl (any environment)
-```bash
-sql <user>/<password>@<host>:<port>/<service>
-@run_all.sql
-```
-
-> **Note:** The `run_all.sql` script itself contains no hardcoded connection string —
-> connect first, then run `@run_all.sql`. The example in comments is for documentation only.
+> **Note:** `run_all.sql` contains no hardcoded connection string — connect first,
+> then run `@run_all.sql` from the `db_scripts/` directory.
 
 ---
 

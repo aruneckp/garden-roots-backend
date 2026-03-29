@@ -6,10 +6,10 @@
 -- Drop order: reverse of FK dependency chain (incl. all migrations)
 -- ============================================================
 
-PROMPT ============================================================
-PROMPT  WARNING: This will permanently drop ALL Garden Roots tables
-PROMPT  Press Ctrl-C within 5 seconds to cancel ...
-PROMPT ============================================================
+--PROMPT ============================================================
+--PROMPT  WARNING: This will permanently drop ALL Garden Roots tables
+--PROMPT  Press Ctrl-C within 5 seconds to cancel ...
+--PROMPT ============================================================
 
 -- Helper: drops a table, ignoring "table does not exist" (ORA-00942)
 -- CASCADE CONSTRAINTS removes any FK constraints pointing AT the table.
@@ -53,4 +53,4 @@ BEGIN EXECUTE IMMEDIATE 'DROP TABLE locations          CASCADE CONSTRAINTS PURGE
 BEGIN EXECUTE IMMEDIATE 'DROP TABLE products           CASCADE CONSTRAINTS PURGE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
 /
 
-PROMPT All Garden Roots tables dropped (or did not exist).
+--PROMPT All Garden Roots tables dropped (or did not exist).

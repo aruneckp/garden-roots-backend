@@ -5,16 +5,16 @@
 --            Run after run_all.sql to sanity-check the schema.
 -- ============================================================
 
-PROMPT ==============================================================
-PROMPT  VERIFICATION REPORT
-PROMPT ==============================================================
+--PROMPT ==============================================================
+--PROMPT  VERIFICATION REPORT
+--PROMPT ==============================================================
 
 -- ----------------------------------------------------------------
 -- 1. Table existence check  (expects 18 rows)
 -- ----------------------------------------------------------------
-PROMPT
-PROMPT [1] Tables found in schema (expect 18):
-PROMPT
+--PROMPT
+--PROMPT [1] Tables found in schema (expect 18):
+--PROMPT
 SELECT
     table_name,
     CASE WHEN table_name IN (
@@ -39,9 +39,9 @@ ORDER BY table_name;
 -- ----------------------------------------------------------------
 -- 2. Missing tables alert  (expects 0 rows)
 -- ----------------------------------------------------------------
-PROMPT
-PROMPT [2] Missing tables (should be 0 rows):
-PROMPT
+--PROMPT
+--PROMPT [2] Missing tables (should be 0 rows):
+--PROMPT
 SELECT expected_table
 FROM (
     SELECT 'PRODUCTS'          AS expected_table FROM dual UNION ALL
@@ -68,9 +68,9 @@ WHERE expected_table NOT IN (SELECT table_name FROM user_tables);
 -- ----------------------------------------------------------------
 -- 3. Row counts per table
 -- ----------------------------------------------------------------
-PROMPT
-PROMPT [3] Row counts (seed data):
-PROMPT
+--PROMPT
+--PROMPT [3] Row counts (seed data):
+--PROMPT
 SELECT 'products'         AS table_name, COUNT(*) AS row_count FROM products         UNION ALL
 SELECT 'locations',                      COUNT(*) FROM locations                      UNION ALL
 SELECT 'admin_users',                    COUNT(*) FROM admin_users                    UNION ALL
@@ -94,9 +94,9 @@ ORDER BY 1;
 -- ----------------------------------------------------------------
 -- 4. Constraint check  (expects 0 disabled constraints)
 -- ----------------------------------------------------------------
-PROMPT
-PROMPT [4] Disabled constraints (should be 0 rows):
-PROMPT
+--PROMPT
+--PROMPT [4] Disabled constraints (should be 0 rows):
+--PROMPT
 SELECT constraint_name, table_name, constraint_type, status
 FROM   user_constraints
 WHERE  table_name IN (
@@ -113,9 +113,9 @@ ORDER BY table_name, constraint_name;
 -- ----------------------------------------------------------------
 -- 5. Index count per table
 -- ----------------------------------------------------------------
-PROMPT
-PROMPT [5] Index count per table:
-PROMPT
+--PROMPT
+--PROMPT [5] Index count per table:
+--PROMPT
 SELECT table_name, COUNT(*) AS index_count
 FROM   user_indexes
 WHERE  table_name IN (
@@ -132,9 +132,9 @@ ORDER BY table_name;
 -- ----------------------------------------------------------------
 -- 6. Migration columns present on ORDERS (migrations 05-08)
 -- ----------------------------------------------------------------
-PROMPT
-PROMPT [6] Migration columns on ORDERS (expect 4 rows):
-PROMPT
+--PROMPT
+--PROMPT [6] Migration columns on ORDERS (expect 4 rows):
+--PROMPT
 SELECT column_name, data_type, nullable
 FROM   user_tab_columns
 WHERE  table_name  = 'ORDERS'
@@ -145,9 +145,9 @@ ORDER BY column_name;
 -- ----------------------------------------------------------------
 -- 7. Seed data sanity check
 -- ----------------------------------------------------------------
-PROMPT
-PROMPT [7] Admin users in system:
-PROMPT
+--PROMPT
+--PROMPT [7] Admin users in system:
+--PROMPT
 SELECT id, username, full_name, email, role, is_active,
        CASE WHEN password_hash = 'REPLACE_WITH_BCRYPT_HASH'
             THEN '*** WARNING: placeholder hash - change before use! ***'
@@ -155,7 +155,7 @@ SELECT id, username, full_name, email, role, is_active,
        END AS password_status
 FROM   admin_users;
 
-PROMPT
-PROMPT ==============================================================
-PROMPT  Verification complete. Review results above.
-PROMPT ==============================================================
+--PROMPT
+--PROMPT ==============================================================
+--PROMPT  Verification complete. Review results above.
+--PROMPT ==============================================================

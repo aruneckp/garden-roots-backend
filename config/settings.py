@@ -24,10 +24,15 @@ class Settings(BaseSettings):
     # ── CORS (comma-separated origins in .env are parsed automatically) ───────
     allowed_origins: List[str] = ["http://localhost:5173", "http://localhost:3000"]
 
-    # ── Stripe ────────────────────────────────────────────────────────────────
-    stripe_secret_key: str = ""
-    stripe_webhook_secret: str = ""
-    app_url: str = "http://localhost:8000"
+    # ── HitPay ────────────────────────────────────────────────────────────────
+    hitpay_api_key: str = ""          # From HitPay dashboard → Payment Gateway
+    hitpay_salt: str = ""             # From HitPay dashboard → Payment Gateway (for webhook HMAC)
+    hitpay_is_sandbox: bool = True    # Set False in production
+    app_url: str = "http://localhost:8000"        # Backend public URL (for webhook)
+    frontend_url: str = "http://localhost:5173"   # Frontend public URL (for redirect_url)
+
+    # ── Google OAuth ──────────────────────────────────────────────────────────
+    google_client_id: str = ""
 
     # ── Business rules ────────────────────────────────────────────────────────
     delivery_free_threshold: float = 120.0

@@ -20,11 +20,9 @@
 -- REPLACE_WITH_BCRYPT_HASH below.
 -- ============================================================
 
-WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK
-
-PROMPT ----------------------------------------------------------
-PROMPT  Inserting seed data ...
-PROMPT ----------------------------------------------------------
+--PROMPT ----------------------------------------------------------
+--PROMPT  Inserting seed data ...
+--PROMPT ----------------------------------------------------------
 
 -- ----------------------------------------------------------------
 -- Default admin user
@@ -43,7 +41,7 @@ WHEN NOT MATCHED THEN
         1
     );
 
-PROMPT   admin_users  -> default admin row inserted (or already exists).
+--PROMPT   admin_users  -> default admin row inserted (or already exists).
 
 -- ----------------------------------------------------------------
 -- Default pickup location (head office / warehouse)
@@ -67,10 +65,10 @@ WHEN NOT MATCHED THEN
         'Primary receiving and dispatch warehouse.'
     );
 
-PROMPT   pickup_locations -> Head Office Warehouse inserted (or already exists).
+--PROMPT   pickup_locations -> Head Office Warehouse inserted (or already exists).
 
 COMMIT;
 
-PROMPT ----------------------------------------------------------
-PROMPT  Seed data committed.
-PROMPT ----------------------------------------------------------
+--PROMPT ----------------------------------------------------------
+--PROMPT  Seed data committed.
+--PROMPT ----------------------------------------------------------

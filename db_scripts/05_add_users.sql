@@ -18,8 +18,8 @@ CREATE TABLE users (
     CONSTRAINT uq_users_email     UNIQUE (email)
 );
 
-CREATE INDEX idx_users_google_id ON users (google_id);
-CREATE INDEX idx_users_email     ON users (email);
+--CREATE INDEX idx_users_google_id ON users (google_id);
+--CREATE INDEX idx_users_email     ON users (email);
 
 -- 2. Add user_id foreign key column to orders (nullable — existing orders have no user)
 ALTER TABLE orders ADD user_id NUMBER;

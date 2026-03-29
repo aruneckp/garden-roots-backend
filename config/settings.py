@@ -16,6 +16,13 @@ class Settings(BaseSettings):
     db_port: int = 1521
     db_service: str
 
+    # ── Oracle Wallet (required for Oracle Autonomous Database / cloud) ───────
+    # Store each file separately to stay under Railway's 32 KB env var limit.
+    oracle_ewallet_p12_b64: str = ""   # base64 of ewallet.p12
+    oracle_wallet_password: str = ""   # wallet password from OCI download dialog
+    oracle_tnsnames: str = ""          # full text of tnsnames.ora
+    oracle_sqlnet: str = ""            # full text of sqlnet.ora
+
     # ── FastAPI ───────────────────────────────────────────────────────────────
     api_title: str = "Garden Roots API"
     api_version: str = "1.0.0"
@@ -33,12 +40,6 @@ class Settings(BaseSettings):
     delivery_free_threshold: float = 120.0
     delivery_cost: float = 12.0
 
-    @property
-    def db_connection_string(self) -> str:
-        return (
-            f"oracle+oracledb://{self.db_user}:{self.db_password}"
-            f"@{self.db_host}:{self.db_port}/?service_name={self.db_service}"
-        )
 
 
 settings = Settings()

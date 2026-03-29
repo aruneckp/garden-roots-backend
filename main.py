@@ -8,17 +8,19 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from config.settings import settings
 from utils.logger import configure_logging
-from database.connection import verify_connection
-from api.v1.router import api_router
-from middleware.error_handler import (
+
+# Configure logging FIRST — before any other local imports so module-level
+# log calls in database/connection.py are captured.
+configure_logging()
+logger = logging.getLogger(__name__)
+
+from database.connection import verify_connection  # noqa: E402
+from api.v1.router import api_router  # noqa: E402
+from middleware.error_handler import (  # noqa: E402
     http_exception_handler,
     validation_exception_handler,
     unhandled_exception_handler,
 )
-
-# Configure structured logging before anything else
-configure_logging()
-logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------

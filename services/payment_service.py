@@ -1,49 +1,47 @@
 """
-Stripe PayNow payment service.
+HitPay payment service — PayNow via HitPay hosted checkout.
 
-Uses the same PaymentIntent creation pattern as the tested
-stripe_payment reference project (confirm=True + payment_method_data).
-Stripe hosts the QR code image and handles bank notification via webhook.
+Flow:
+  1. create_payment_request() → returns HitPay checkout URL
+  2. Frontend redirects customer to that URL
+  3. Customer pays on HitPay's page
+  4. HitPay POSTs webhook to /api/v1/payments/hitpay-webhook
+  5. Webhook verifies HMAC, then confirms order in DB
+  6. HitPay redirects customer back to frontend with ?reference=...&status=...
 """
+import hashlib
+import hmac as hmac_lib
 import logging
 
-import stripe
+import requests
 from fastapi import HTTPException
 
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-stripe.api_key = settings.stripe_secret_key
+_SANDBOX_BASE = "https://api.sandbox.hit-pay.com/v1"
+_PROD_BASE    = "https://api.hit-pay.com/v1"
 
-# Stripe status → internal status mapping
+# HitPay status → internal status
 _STATUS_MAP = {
-    "succeeded":               "succeeded",
-    "requires_action":         "pending",   # QR shown, awaiting scan
-    "processing":              "pending",
-    "requires_payment_method": "expired",
-    "canceled":                "expired",
+    "pending":   "pending",
+    "completed": "succeeded",
+    "failed":    "failed",
+    "expired":   "failed",
 }
 
 
-def _extract_qr_info(payment_intent) -> dict:
-    """Pull QR code fields from a PaymentIntent's next_action."""
-    na = payment_intent.get("next_action")
-    if na and na.get("type") == "paynow_display_qr_code":
-        qr_obj = na.get("paynow_display_qr_code", {})
-        return {
-            "image_url_png": qr_obj.get("image_url_png"),
-            "image_url_svg": qr_obj.get("image_url_svg"),
-            "data":          qr_obj.get("data"),
-            "expires_at":    qr_obj.get("expires_at"),
-        }
-    return {}
+def _api_base() -> str:
+    return _SANDBOX_BASE if settings.hitpay_is_sandbox else _PROD_BASE
 
 
-def _assert_stripe_configured():
-    """Raise a clear 503 if the Stripe key is missing or is still the placeholder."""
-    key = settings.stripe_secret_key
-    if not key or not key.startswith("sk_"):
+def _headers() -> dict:
+    return {"X-BUSINESS-API-KEY": settings.hitpay_api_key}
+
+
+def _assert_configured():
+    if not settings.hitpay_api_key:
         raise HTTPException(
             status_code=503,
             detail="Payment gateway is not configured. Contact support.",
@@ -51,72 +49,112 @@ def _assert_stripe_configured():
 
 
 class PaymentService:
-    """Stripe PayNow payment processing service."""
+    """HitPay PayNow payment processing service."""
 
     @staticmethod
-    def create_payment_intent(amount: float, description: str, order_id: int) -> dict:
+    def create_payment_request(
+        amount: float,
+        order_id: int,
+        customer_name: str = "",
+        customer_email: str = "",
+        customer_phone: str = "",
+    ) -> dict:
         """
-        Create and immediately confirm a Stripe PaymentIntent for PayNow.
-        Returns the Stripe-hosted QR image URL and raw PayNow data string.
-
-        An idempotency_key scoped to the order prevents duplicate intents
-        if the client retries the same order (double-click / network hiccup).
+        Create a HitPay payment request for PayNow.
+        Returns the HitPay hosted checkout URL to redirect the customer to.
+        reference_number encodes the order_id so it can be recovered from webhook/redirect.
         """
-        _assert_stripe_configured()
+        _assert_configured()
 
-        amount_cents = int(round(amount * 100))
+        payload = {
+            "amount":           f"{amount:.2f}",
+            "currency":         "SGD",
+            "reference_number": f"GR-ORDER-{order_id}",
+            "redirect_url":     f"{settings.frontend_url}/",
+        }
+        # Webhook requires a public URL — skip in sandbox (localhost not allowed).
+        # In production the webhook is the primary confirmation trigger.
+        if not settings.hitpay_is_sandbox:
+            payload["webhook"] = f"{settings.app_url}/api/v1/payments/hitpay-webhook"
+            payload["payment_methods"] = ["paynow_online"]
+        if customer_name:
+            payload["name"] = customer_name
+        if customer_email:
+            payload["email"] = customer_email
+        if customer_phone:
+            payload["phone"] = customer_phone
 
-        pi = stripe.PaymentIntent.create(
-            amount=amount_cents,
-            currency="sgd",
-            payment_method_types=["paynow"],
-            confirm=True,
-            payment_method_data={"type": "paynow"},
-            return_url=f"{settings.app_url}/payment-complete",
-            metadata={
-                "order_id":    str(order_id),
-                "description": description,
-            },
-            # Prevents duplicate PaymentIntents when a client retries the same order.
-            # Stripe returns the existing PI instead of creating a new charge.
-            idempotency_key=f"create-pi-order-{order_id}",
+        resp = requests.post(
+            f"{_api_base()}/payment-requests",
+            json=payload,
+            headers=_headers(),
+            timeout=15,
         )
 
-        qr = _extract_qr_info(pi)
+        if not resp.ok:
+            logger.error("HitPay create error: %s %s", resp.status_code, resp.text)
+            raise HTTPException(status_code=502, detail="Payment gateway error. Please try again.")
+
+        data = resp.json()
         logger.info(
-            "Stripe PaymentIntent created: %s  status=%s  amount=SGD%.2f  order_id=%s",
-            pi["id"], pi["status"], amount, order_id,
+            "HitPay payment request created: id=%s  amount=SGD%.2f  order_id=%s",
+            data["id"], amount, order_id,
         )
 
         return {
-            "payment_intent_id": pi["id"],
-            "client_secret":     pi["client_secret"],
-            "qr_url":            qr.get("image_url_png"),
-            "qr_data":           qr.get("data"),
-            "status":            _STATUS_MAP.get(pi["status"], "pending"),
+            "payment_intent_id": data["id"],
+            "payment_url":       data["url"],
+            "status":            "pending",
             "amount":            amount,
             "currency":          "SGD",
-            "expires_at":        qr.get("expires_at"),
         }
 
     @staticmethod
-    def get_payment_status(payment_intent_id: str) -> dict:
-        """
-        Retrieve live payment status directly from Stripe.
-        Also returns metadata_order_id so callers can verify the PI
-        belongs to the expected order (prevents payment intent re-use attacks).
-        """
-        _assert_stripe_configured()
-        pi = stripe.PaymentIntent.retrieve(payment_intent_id)
-        qr = _extract_qr_info(pi)
+    def get_payment_status(payment_request_id: str) -> dict:
+        """Retrieve current status of a HitPay payment request."""
+        _assert_configured()
 
+        resp = requests.get(
+            f"{_api_base()}/payment-requests/{payment_request_id}",
+            headers=_headers(),
+            timeout=15,
+        )
+
+        if resp.status_code == 404:
+            raise HTTPException(status_code=404, detail="Payment not found.")
+        if not resp.ok:
+            logger.error("HitPay status error: %s %s", resp.status_code, resp.text)
+            raise HTTPException(status_code=502, detail="Payment gateway error.")
+
+        data = resp.json()
         return {
-            "payment_intent_id":  pi["id"],
-            "status":             _STATUS_MAP.get(pi["status"], "pending"),
-            "amount":             pi["amount"] / 100,
+            "payment_intent_id":  data["id"],
+            "status":             _STATUS_MAP.get(data.get("status", "pending"), "pending"),
+            "amount":             float(data.get("amount", 0)),
             "currency":           "SGD",
-            "qr_url":             qr.get("image_url_png"),
-            "expires_at":         qr.get("expires_at"),
-            # Callers verify this matches the order_id in their request
-            "metadata_order_id":  pi.get("metadata", {}).get("order_id"),
+            "reference_number":   data.get("reference_number", ""),
         }
+
+    @staticmethod
+    def verify_webhook(payload: dict, received_hmac: str) -> bool:
+        """
+        Verify HitPay webhook HMAC-SHA256 signature.
+        Steps: sort all payload fields (excl. hmac) alphabetically,
+        join as key=value&..., sign with hitpay_salt.
+        """
+        if not settings.hitpay_salt:
+            logger.warning("HITPAY_SALT not set — skipping webhook HMAC verification")
+            return True  # allow in dev when salt not configured
+
+        sorted_string = "&".join(
+            f"{k}={v}"
+            for k, v in sorted(payload.items())
+            if k != "hmac"
+        )
+        expected = hmac_lib.new(
+            settings.hitpay_salt.encode("utf-8"),
+            sorted_string.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+
+        return hmac_lib.compare_digest(expected, received_hmac)

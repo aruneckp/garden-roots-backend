@@ -1,34 +1,30 @@
 -- ============================================================
 -- Garden Roots - Master Setup Script
--- Database : Oracle 12c+  (XE / XEPDB1)
+-- Database : Oracle 12c+  (XE / XEPDB1 or Cloud ATP/ADB)
 -- ============================================================
 --
 -- USAGE (SQL*Plus or SQLcl):
 --
---   1. Connect to the target schema/user first:
+--   LOCAL (XE):
+--     sqlplus system/Oracle123@localhost:1521/XEPDB1
+--     @run_all.sql
 --
---        sqlplus system/Oracle123@localhost:1521/XEPDB1
---        -- or --
---        sql system/Oracle123@localhost:1521/XEPDB1
+--   CLOUD (ATP / Autonomous DB):
+--     sqlplus admin/<password>@<wallet_dsn>
+--     @run_all.sql
 --
---   2. Run this script from the db_scripts/ directory:
---
---        @run_all.sql
---
---   3. For a FRESH install (drops existing tables first):
---
---        @00_drop_all.sql
---        @run_all.sql
+--   FRESH INSTALL (drops everything first):
+--     @00_drop_all.sql
+--     @run_all.sql
 --
 -- PRE-REQUISITES:
---   • Oracle 12c or later (XE 18c+ recommended)
---   • Connected as the application schema owner (e.g. system / XEPDB1)
---   • The user must have CREATE TABLE, CREATE INDEX, CREATE SEQUENCE
---     privileges (system user has these by default)
+--   • Oracle 12c or later  (XE 18c+ / ATP recommended)
+--   • Connected as the application schema owner
+--   • User must have CREATE TABLE, CREATE INDEX privileges
 --
 -- POST-SETUP:
---   • Open 03_seed_data.sql and replace REPLACE_WITH_BCRYPT_HASH
---     with a real bcrypt hash before running in production.
+--   • Replace REPLACE_WITH_BCRYPT_HASH in 03_seed_data.sql
+--     with a real bcrypt hash BEFORE running in production.
 --   • Run 04_verify.sql any time to confirm schema integrity.
 -- ============================================================
 
@@ -37,23 +33,23 @@ WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK
 
 PROMPT
 PROMPT ============================================================
-PROMPT   Garden Roots - Database Setup
+PROMPT   Garden Roots - Full Database Setup
 PROMPT   Started : &&_DATE  &&_TIME
 PROMPT ============================================================
 
 -- ----------------------------------------------------------------
--- STEP 1 : Create all tables
+-- STEP 1 : Create all base tables (17 tables)
 -- ----------------------------------------------------------------
 PROMPT
-PROMPT [STEP 1/3] Creating tables ...
+PROMPT [STEP 1/7] Creating base tables ...
 PROMPT
 @01_create_tables.sql
 
 -- ----------------------------------------------------------------
--- STEP 2 : Create indexes
+-- STEP 2 : Create base indexes
 -- ----------------------------------------------------------------
 PROMPT
-PROMPT [STEP 2/3] Creating indexes ...
+PROMPT [STEP 2/7] Creating indexes ...
 PROMPT
 @02_create_indexes.sql
 
@@ -61,9 +57,41 @@ PROMPT
 -- STEP 3 : Insert seed / bootstrap data
 -- ----------------------------------------------------------------
 PROMPT
-PROMPT [STEP 3/3] Inserting seed data ...
+PROMPT [STEP 3/7] Inserting seed data ...
 PROMPT
 @03_seed_data.sql
+
+-- ----------------------------------------------------------------
+-- STEP 4 : Migration 05 - Add USERS table + link orders to users
+-- ----------------------------------------------------------------
+PROMPT
+PROMPT [STEP 4/7] Migration 05 - Adding USERS table ...
+PROMPT
+@05_add_users.sql
+
+-- ----------------------------------------------------------------
+-- STEP 5 : Migration 06 - delivery_type, pickup_location, notes
+-- ----------------------------------------------------------------
+PROMPT
+PROMPT [STEP 5/7] Migration 06 - Delivery type and pickup support ...
+PROMPT
+@06_order_pickup_and_notes.sql
+
+-- ----------------------------------------------------------------
+-- STEP 6 : Migration 07 - delivery_feedback on orders
+-- ----------------------------------------------------------------
+PROMPT
+PROMPT [STEP 6/7] Migration 07 - Delivery feedback column ...
+PROMPT
+@07_order_delivery_feedback.sql
+
+-- ----------------------------------------------------------------
+-- STEP 7 : Migration 08 - shipment_id on orders (reconciliation)
+-- ----------------------------------------------------------------
+PROMPT
+PROMPT [STEP 7/7] Migration 08 - Shipment reconciliation link ...
+PROMPT
+@08_order_shipment_link.sql
 
 -- ----------------------------------------------------------------
 -- DONE

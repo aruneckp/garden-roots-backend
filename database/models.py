@@ -88,23 +88,32 @@ class Location(Base):
 class Order(Base):
     __tablename__ = "orders"
 
-    id                = Column(Integer, primary_key=True, index=True)
-    order_ref         = Column(String(50), unique=True, nullable=False, index=True)
-    customer_name     = Column(String(150), nullable=False)
-    customer_email    = Column(String(150))
-    customer_phone    = Column(String(20))
-    subtotal          = Column(Numeric(10, 2), nullable=False)
-    delivery_fee      = Column(Numeric(10, 2), default=0)
-    total_price       = Column(Numeric(10, 2), nullable=False)
-    payment_method    = Column(String(50))
-    payment_status    = Column(String(50), default="pending", index=True)
-    payment_intent_id = Column(String(300))
-    order_status      = Column(String(50), default="pending", index=True)
-    delivery_address  = Column(String(500))
-    created_at        = Column(DateTime(timezone=True), default=_now)
-    updated_at        = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+    id                  = Column(Integer, primary_key=True, index=True)
+    user_id             = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    order_ref           = Column(String(50), unique=True, nullable=False, index=True)
+    customer_name       = Column(String(150), nullable=False)
+    customer_email      = Column(String(150))
+    customer_phone      = Column(String(20))
+    subtotal            = Column(Numeric(10, 2), nullable=False)
+    delivery_fee        = Column(Numeric(10, 2), default=0)
+    total_price         = Column(Numeric(10, 2), nullable=False)
+    payment_method      = Column(String(50))
+    payment_status      = Column(String(50), default="pending", index=True)
+    payment_intent_id   = Column(String(300))
+    order_status        = Column(String(50), default="pending", index=True)
+    delivery_address    = Column(String(500))
+    delivery_type       = Column(String(20), default="delivery", index=True)  # 'delivery' | 'pickup'
+    pickup_location_id  = Column(Integer, ForeignKey("pickup_locations.id"), nullable=True, index=True)
+    shipment_id         = Column(Integer, ForeignKey("shipments.id"), nullable=True, index=True)
+    customer_notes      = Column(String(1000))
+    delivery_feedback   = Column(String(2000))   # post-delivery comments from customer
+    created_at          = Column(DateTime(timezone=True), default=_now)
+    updated_at          = Column(DateTime(timezone=True), default=_now, onupdate=_now)
 
-    order_items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
+    order_items     = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
+    user            = relationship("User", back_populates="orders")
+    pickup_location = relationship("PickupLocation", foreign_keys=[pickup_location_id])
+    shipment        = relationship("Shipment", foreign_keys=[shipment_id])
 
 
 class OrderItem(Base):
@@ -120,6 +129,23 @@ class OrderItem(Base):
 
     order           = relationship("Order", back_populates="order_items")
     product_variant = relationship("ProductVariant", back_populates="order_items")
+
+
+class User(Base):
+    """Customer users authenticated via Google OAuth."""
+    __tablename__ = "users"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    google_id      = Column(String(100), unique=True, nullable=False, index=True)
+    email          = Column(String(150), unique=True, nullable=False, index=True)
+    name           = Column(String(150))
+    picture        = Column(String(500))
+    phone          = Column(String(20))
+    whatsapp_phone = Column(String(20))   # provision for later
+    created_at     = Column(DateTime(timezone=True), default=_now)
+    updated_at     = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+    orders = relationship("Order", back_populates="user")
 
 
 class AdminUser(Base):
@@ -270,6 +296,7 @@ class PickupLocation(Base):
     name            = Column(String(150), nullable=False, index=True)
     address         = Column(String(500), nullable=False)
     phone           = Column(String(20))
+    whatsapp_phone  = Column(String(20))
     email           = Column(String(150))
     manager_name    = Column(String(150))
     location_type   = Column(String(50), default="retail")

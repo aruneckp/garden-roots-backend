@@ -1,7 +1,7 @@
 -- ============================================================
 -- Garden Roots - Post-Setup Verification
--- Database : Oracle 12c+  (XE / XEPDB1)
--- Purpose  : Confirms all 17 tables and their indexes exist.
+-- Database : Oracle 12c+  (XE / XEPDB1 or Cloud ATP/ADB)
+-- Purpose  : Confirms all 18 tables (base + migrations) exist.
 --            Run after run_all.sql to sanity-check the schema.
 -- ============================================================
 
@@ -10,10 +10,10 @@ PROMPT  VERIFICATION REPORT
 PROMPT ==============================================================
 
 -- ----------------------------------------------------------------
--- 1. Table existence check  (expects 17 rows)
+-- 1. Table existence check  (expects 18 rows)
 -- ----------------------------------------------------------------
 PROMPT
-PROMPT [1] Tables found in schema:
+PROMPT [1] Tables found in schema (expect 18):
 PROMPT
 SELECT
     table_name,
@@ -22,7 +22,8 @@ SELECT
         'PICKUP_LOCATIONS','PRODUCT_VARIANTS','PRICING',
         'STOCK_INVENTORY','ORDERS','SHIPMENTS','ORDER_ITEMS',
         'SHIPMENT_BOXES','DELIVERY_LOGS','SHIPMENT_SUMMARY',
-        'PREBOOKINGS','PAYMENT_RECORDS','BOX_ENTRY_LOGS'
+        'PREBOOKINGS','PAYMENT_RECORDS','BOX_ENTRY_LOGS',
+        'USERS'
     ) THEN 'OK' ELSE 'UNEXPECTED' END AS status
 FROM user_tables
 WHERE table_name IN (
@@ -30,7 +31,8 @@ WHERE table_name IN (
     'PICKUP_LOCATIONS','PRODUCT_VARIANTS','PRICING',
     'STOCK_INVENTORY','ORDERS','SHIPMENTS','ORDER_ITEMS',
     'SHIPMENT_BOXES','DELIVERY_LOGS','SHIPMENT_SUMMARY',
-    'PREBOOKINGS','PAYMENT_RECORDS','BOX_ENTRY_LOGS'
+    'PREBOOKINGS','PAYMENT_RECORDS','BOX_ENTRY_LOGS',
+    'USERS'
 )
 ORDER BY table_name;
 
@@ -58,7 +60,8 @@ FROM (
     SELECT 'SHIPMENT_SUMMARY'                    FROM dual UNION ALL
     SELECT 'PREBOOKINGS'                         FROM dual UNION ALL
     SELECT 'PAYMENT_RECORDS'                     FROM dual UNION ALL
-    SELECT 'BOX_ENTRY_LOGS'                      FROM dual
+    SELECT 'BOX_ENTRY_LOGS'                      FROM dual UNION ALL
+    SELECT 'USERS'                               FROM dual
 ) expected
 WHERE expected_table NOT IN (SELECT table_name FROM user_tables);
 
@@ -84,7 +87,8 @@ SELECT 'delivery_logs',                  COUNT(*) FROM delivery_logs            
 SELECT 'shipment_summary',               COUNT(*) FROM shipment_summary               UNION ALL
 SELECT 'prebookings',                    COUNT(*) FROM prebookings                    UNION ALL
 SELECT 'payment_records',                COUNT(*) FROM payment_records                UNION ALL
-SELECT 'box_entry_logs',                 COUNT(*) FROM box_entry_logs
+SELECT 'box_entry_logs',                 COUNT(*) FROM box_entry_logs                 UNION ALL
+SELECT 'users',                          COUNT(*) FROM users
 ORDER BY 1;
 
 -- ----------------------------------------------------------------
@@ -100,7 +104,8 @@ WHERE  table_name IN (
     'PICKUP_LOCATIONS','PRODUCT_VARIANTS','PRICING',
     'STOCK_INVENTORY','ORDERS','SHIPMENTS','ORDER_ITEMS',
     'SHIPMENT_BOXES','DELIVERY_LOGS','SHIPMENT_SUMMARY',
-    'PREBOOKINGS','PAYMENT_RECORDS','BOX_ENTRY_LOGS'
+    'PREBOOKINGS','PAYMENT_RECORDS','BOX_ENTRY_LOGS',
+    'USERS'
 )
 AND status != 'ENABLED'
 ORDER BY table_name, constraint_name;
@@ -118,16 +123,30 @@ WHERE  table_name IN (
     'PICKUP_LOCATIONS','PRODUCT_VARIANTS','PRICING',
     'STOCK_INVENTORY','ORDERS','SHIPMENTS','ORDER_ITEMS',
     'SHIPMENT_BOXES','DELIVERY_LOGS','SHIPMENT_SUMMARY',
-    'PREBOOKINGS','PAYMENT_RECORDS','BOX_ENTRY_LOGS'
+    'PREBOOKINGS','PAYMENT_RECORDS','BOX_ENTRY_LOGS',
+    'USERS'
 )
 GROUP BY table_name
 ORDER BY table_name;
 
 -- ----------------------------------------------------------------
--- 6. Seed data sanity check
+-- 6. Migration columns present on ORDERS (migrations 05-08)
 -- ----------------------------------------------------------------
 PROMPT
-PROMPT [6] Admin users in system:
+PROMPT [6] Migration columns on ORDERS (expect 4 rows):
+PROMPT
+SELECT column_name, data_type, nullable
+FROM   user_tab_columns
+WHERE  table_name  = 'ORDERS'
+AND    column_name IN ('USER_ID','DELIVERY_TYPE','PICKUP_LOCATION_ID',
+                       'CUSTOMER_NOTES','DELIVERY_FEEDBACK','SHIPMENT_ID')
+ORDER BY column_name;
+
+-- ----------------------------------------------------------------
+-- 7. Seed data sanity check
+-- ----------------------------------------------------------------
+PROMPT
+PROMPT [7] Admin users in system:
 PROMPT
 SELECT id, username, full_name, email, role, is_active,
        CASE WHEN password_hash = 'REPLACE_WITH_BCRYPT_HASH'

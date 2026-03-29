@@ -1,9 +1,9 @@
 -- ============================================================
 -- Garden Roots - Drop All Tables (Safe / Idempotent)
--- Database : Oracle 12c+  (XE / XEPDB1)
+-- Database : Oracle 12c+  (XE / XEPDB1 or Cloud ATP/ADB)
 -- Usage    : Run this ONLY when you need a clean slate.
 --            Safe to run on an empty schema - ignores ORA-00942.
--- Drop order: reverse of FK dependency chain
+-- Drop order: reverse of FK dependency chain (incl. all migrations)
 -- ============================================================
 
 PROMPT ============================================================
@@ -14,6 +14,7 @@ PROMPT ============================================================
 -- Helper: drops a table, ignoring "table does not exist" (ORA-00942)
 -- CASCADE CONSTRAINTS removes any FK constraints pointing AT the table.
 
+-- Migration tables (drop first — they have FKs into base tables)
 BEGIN EXECUTE IMMEDIATE 'DROP TABLE box_entry_logs    CASCADE CONSTRAINTS PURGE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
 /
 BEGIN EXECUTE IMMEDIATE 'DROP TABLE payment_records    CASCADE CONSTRAINTS PURGE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
@@ -31,6 +32,9 @@ BEGIN EXECUTE IMMEDIATE 'DROP TABLE order_items        CASCADE CONSTRAINTS PURGE
 BEGIN EXECUTE IMMEDIATE 'DROP TABLE shipments          CASCADE CONSTRAINTS PURGE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
 /
 BEGIN EXECUTE IMMEDIATE 'DROP TABLE orders             CASCADE CONSTRAINTS PURGE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
+/
+-- USERS added by migration 05 (drop after orders FK is gone)
+BEGIN EXECUTE IMMEDIATE 'DROP TABLE users              CASCADE CONSTRAINTS PURGE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
 /
 BEGIN EXECUTE IMMEDIATE 'DROP TABLE stock_inventory    CASCADE CONSTRAINTS PURGE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
 /

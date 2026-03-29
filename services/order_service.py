@@ -47,9 +47,12 @@ def create_order(db: Session, payload: OrderIn) -> OrderOut:
         subtotal += item_subtotal
         line_items.append((variant, item.quantity, price, item_subtotal))
 
-    # 2. Compute delivery fee
-    threshold = Decimal(str(settings.delivery_free_threshold))
-    delivery_fee = Decimal("0") if subtotal >= threshold else Decimal(str(settings.delivery_cost))
+    # 2. Compute delivery fee (always $0 for self-pickup)
+    if payload.delivery_type == "pickup":
+        delivery_fee = Decimal("0")
+    else:
+        threshold = Decimal(str(settings.delivery_free_threshold))
+        delivery_fee = Decimal("0") if subtotal >= threshold else Decimal(str(settings.delivery_cost))
     total = subtotal + delivery_fee
 
     # 3. Reserve stock atomically
@@ -59,6 +62,7 @@ def create_order(db: Session, payload: OrderIn) -> OrderOut:
     # 4. Persist order
     order = Order(
         order_ref=_generate_order_ref(),
+        user_id=payload.user_id,
         customer_name=payload.customer_name,
         customer_email=payload.customer_email,
         customer_phone=payload.customer_phone,
@@ -68,7 +72,10 @@ def create_order(db: Session, payload: OrderIn) -> OrderOut:
         payment_method=payload.payment_method,
         payment_status="pending",
         order_status="pending",
+        delivery_type=payload.delivery_type,
         delivery_address=payload.delivery_address,
+        pickup_location_id=payload.pickup_location_id,
+        customer_notes=payload.customer_notes,
     )
     db.add(order)
     db.flush()

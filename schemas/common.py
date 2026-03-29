@@ -17,7 +17,7 @@ class ErrorResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Payment schemas (Stripe PayNow)
+# Payment schemas (HitPay PayNow)
 # ---------------------------------------------------------------------------
 
 class PaymentCreateRequest(BaseModel):
@@ -25,17 +25,17 @@ class PaymentCreateRequest(BaseModel):
     description: str = "Garden Roots Order"
     order_id: int
     payment_method: Optional[str] = "paynow"
+    customer_name: Optional[str] = None
+    customer_email: Optional[str] = None
+    customer_phone: Optional[str] = None
 
 
 class PaymentCreateResponse(BaseModel):
-    payment_intent_id: str
-    client_secret: Optional[str] = None
-    qr_url: Optional[str] = None       # Stripe-hosted PNG QR image URL
-    qr_data: Optional[str] = None      # Raw PayNow EMV string (for debugging)
+    payment_intent_id: str    # HitPay payment_request_id
+    payment_url: str          # HitPay hosted checkout URL — redirect customer here
     status: str
     amount: float
     currency: str = "SGD"
-    expires_at: Optional[int] = None
 
 
 class PaymentStatusResponse(BaseModel):

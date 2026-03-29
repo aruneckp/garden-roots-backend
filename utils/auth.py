@@ -6,7 +6,7 @@ from fastapi import HTTPException, Depends, Header
 from sqlalchemy.orm import Session
 
 from database.connection import get_db
-from database.models import AdminUser
+from database.models import AdminUser, User
 
 # Get JWT secret from environment
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
@@ -48,6 +48,45 @@ def verify_token(token: str) -> dict:
         return payload
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
+
+
+def create_user_token(user_id: int, email: str) -> str:
+    """Create JWT access token for a customer user."""
+    expires = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    payload = {
+        "user_id": user_id,
+        "email": email,
+        "role": "user",
+        "exp": expires,
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
+async def get_current_user(
+    authorization: str = Header(None),
+    db: Session = Depends(get_db)
+) -> User:
+    """Dependency to get current authenticated customer user."""
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing authorization header")
+
+    parts = authorization.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Invalid authorization header format")
+
+    try:
+        payload = verify_token(parts[1])
+    except HTTPException:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+
+    if payload.get("role") != "user":
+        raise HTTPException(status_code=403, detail="Not a user token")
+
+    user_id = payload.get("user_id")
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user
 
 
 async def get_current_admin(

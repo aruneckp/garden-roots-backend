@@ -1,5 +1,5 @@
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
-from typing import Optional, List
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+from typing import Optional, List, Literal
 from decimal import Decimal
 from datetime import datetime
 
@@ -15,7 +15,19 @@ class OrderIn(BaseModel):
     customer_email: Optional[EmailStr] = None
     customer_phone: Optional[str] = None
     payment_method: str = Field(..., pattern="^(paynow)$")
+    delivery_type: Literal["delivery", "pickup"] = "delivery"
     delivery_address: Optional[str] = None
+    pickup_location_id: Optional[int] = None
+    customer_notes: Optional[str] = Field(None, max_length=1000)
+    user_id: Optional[int] = None  # set when user is logged in
+
+    @model_validator(mode="after")
+    def validate_delivery_requirements(self) -> "OrderIn":
+        if self.delivery_type == "delivery" and not (self.delivery_address or "").strip():
+            raise ValueError("delivery_address is required for home delivery orders")
+        if self.delivery_type == "pickup" and not self.pickup_location_id:
+            raise ValueError("pickup_location_id is required for self-pickup orders")
+        return self
 
 
 class OrderItemOut(BaseModel):
@@ -26,6 +38,16 @@ class OrderItemOut(BaseModel):
     quantity: int
     unit_price: Decimal
     subtotal: Decimal
+
+
+class PickupLocationPublicOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    address: str
+    phone: Optional[str] = None
+    whatsapp_phone: Optional[str] = None
 
 
 class OrderOut(BaseModel):
@@ -43,7 +65,12 @@ class OrderOut(BaseModel):
     payment_status: str
     order_status: str
     payment_intent_id: Optional[str] = None
+    delivery_type: str = "delivery"
     delivery_address: Optional[str] = None
+    pickup_location_id: Optional[int] = None
+    pickup_location: Optional[PickupLocationPublicOut] = None
+    shipment_id: Optional[int] = None
+    customer_notes: Optional[str] = None
     created_at: datetime
     order_items: List[OrderItemOut] = []
 

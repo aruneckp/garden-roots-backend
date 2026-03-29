@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     db_port: int = 1521
     db_service: str = "XEPDB1"
 
+    # ── Oracle Wallet (required for Oracle Autonomous Database / cloud) ───────
+    # Store each file separately to stay under Railway's 32 KB env var limit.
+    oracle_ewallet_p12_b64: str = ""   # base64 of ewallet.p12
+    oracle_wallet_password: str = ""   # wallet password from OCI download dialog
+    oracle_tnsnames: str = ""          # full text of tnsnames.ora
+    oracle_sqlnet: str = ""            # full text of sqlnet.ora
+
     # ── FastAPI ───────────────────────────────────────────────────────────────
     api_title: str = "Garden Roots API"
     api_version: str = "1.0.0"

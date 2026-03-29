@@ -23,19 +23,20 @@ def _build_wallet_dir() -> Optional[str]:
     Write wallet files from env vars into a temp directory.
     Returns the path, or None for local Oracle XE (no wallet).
     """
-    if not settings.oracle_ewallet_p12_b64:
+    if not settings.oracle_ewallet_pem_b64:
         return None
 
     tmp = tempfile.mkdtemp(prefix="oracle_wallet_")
     atexit.register(_cleanup_wallet, tmp)
 
     try:
-        p12_bytes = base64.b64decode(settings.oracle_ewallet_p12_b64)
+        pem_bytes = base64.b64decode(settings.oracle_ewallet_pem_b64)
     except Exception as exc:
-        logger.error("ORACLE_EWALLET_P12_B64 is not valid base64: %s", exc)
+        logger.error("ORACLE_EWALLET_PEM_B64 is not valid base64: %s", exc)
         raise
-    with open(os.path.join(tmp, "ewallet.p12"), "wb") as f:
-        f.write(p12_bytes)
+    # oracledb thin mode requires ewallet.pem (PEM format), not ewallet.p12
+    with open(os.path.join(tmp, "ewallet.pem"), "wb") as f:
+        f.write(pem_bytes)
 
     if settings.oracle_tnsnames:
         with open(os.path.join(tmp, "tnsnames.ora"), "w") as f:
@@ -70,10 +71,6 @@ def _make_connection():
     For XE:   dsn = host:port/service  →  plain TCP.
     """
     if _wallet_dir:
-        logger.debug(
-            "Connecting via ADB wallet | dsn=%s | config_dir=%s",
-            settings.db_service, _wallet_dir,
-        )
         return oracledb.connect(
             user=settings.db_user,
             password=settings.db_password,

@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from config.settings import settings
-from database.models import Order, OrderItem, Pricing, ProductVariant
+from database.models import Order, OrderItem, Pricing, ProductVariant, User
 from schemas.order import OrderIn, OrderOut
 from services.stock_service import reserve_stock, deduct_stock, release_stock
 
@@ -60,9 +60,15 @@ def create_order(db: Session, payload: OrderIn) -> OrderOut:
         reserve_stock(db, variant.id, qty)
 
     # 4. Persist order
+    # Validate user_id — guard against stale client-side IDs after a DB migration
+    resolved_user_id = None
+    if payload.user_id is not None:
+        exists = db.query(User.id).filter(User.id == payload.user_id).first()
+        resolved_user_id = payload.user_id if exists else None
+
     order = Order(
         order_ref=_generate_order_ref(),
-        user_id=payload.user_id,
+        user_id=resolved_user_id,
         customer_name=payload.customer_name,
         customer_email=payload.customer_email,
         customer_phone=payload.customer_phone,

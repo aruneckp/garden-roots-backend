@@ -13,6 +13,7 @@ class Base(DeclarativeBase):
 
 engine = create_engine(
     settings.db_connection_string,
+    connect_args=settings.db_connect_args,
     poolclass=QueuePool,
     pool_size=10,
     max_overflow=20,

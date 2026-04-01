@@ -127,9 +127,20 @@ class PaymentService:
             raise HTTPException(status_code=502, detail="Payment gateway error.")
 
         data = resp.json()
+
+        # HitPay sandbox quirk: the payment *request* status can stay "pending"
+        # even after the customer pays — but the nested payments[] array has the
+        # real per-transaction status. Check it as the authoritative source.
+        top_status = data.get("status", "pending")
+        payments   = data.get("payments") or []
+        if any(p.get("status") == "succeeded" for p in payments):
+            resolved_status = "succeeded"
+        else:
+            resolved_status = _STATUS_MAP.get(top_status, "pending")
+
         return {
             "payment_intent_id":  data["id"],
-            "status":             _STATUS_MAP.get(data.get("status", "pending"), "pending"),
+            "status":             resolved_status,
             "amount":             float(data.get("amount", 0)),
             "currency":           "SGD",
             "reference_number":   data.get("reference_number", ""),

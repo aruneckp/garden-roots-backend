@@ -1,4 +1,5 @@
 from typing import List
+from urllib.parse import quote_plus
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -65,14 +66,29 @@ class Settings(BaseSettings):
 
     @property
     def db_connection_string(self) -> str:
+        user = quote_plus(self.db_user)
+        pw = quote_plus(self.db_password)
         if self.use_wallet or self.use_dsn:
             # Bare URL — DSN/TNS supplied via connect_args
-            return f"oracle+oracledb://{self.db_user}:{self.db_password}@"
+            return f"oracle+oracledb://{user}:{pw}@"
         # Local XE — standard TCP
         return (
-            f"oracle+oracledb://{self.db_user}:{self.db_password}"
+            f"oracle+oracledb://{user}:{pw}"
             f"@{self.db_host}:{self.db_port}/?service_name={self.db_service}"
         )
+
+    @property
+    def db_connect_args(self) -> dict:
+        if self.use_wallet:
+            return {
+                "dsn": self.db_tns_name,
+                "config_dir": self.db_wallet_path,
+                "wallet_location": self.db_wallet_path,
+                "wallet_password": self.db_wallet_password,
+            }
+        if self.use_dsn:
+            return {"dsn": self.db_dsn}
+        return {}
 
 
 settings = Settings()

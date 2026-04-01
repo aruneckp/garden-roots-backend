@@ -3,3 +3,7 @@
 .env.local
 .env.production
 *.env
+.pyc
+__pycache__/
+wallet/
+logs/

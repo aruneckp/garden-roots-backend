@@ -116,6 +116,7 @@ def confirm_payment(
                     order_ref=order.order_ref,
                     order_status=order.order_status,
                     payment_status=order.payment_status,
+                    total_price=float(order.total_price) if order.total_price else None,
                 )
             raise
 
@@ -125,6 +126,7 @@ def confirm_payment(
             order_ref=order.order_ref,
             order_status=order.order_status,
             payment_status=order.payment_status,
+            total_price=float(order.total_price) if order.total_price else None,
         )
 
     except HTTPException:

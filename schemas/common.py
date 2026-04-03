@@ -51,3 +51,4 @@ class PaymentConfirmResponse(BaseModel):
     order_ref: str
     order_status: str
     payment_status: str
+    total_price: Optional[float] = None

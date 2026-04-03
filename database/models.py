@@ -147,6 +147,7 @@ class User(Base):
     picture        = Column(String(500))
     phone          = Column(String(20))
     whatsapp_phone = Column(String(20))   # provision for later
+    role           = Column(String(20), default="customer", nullable=False)
     created_at     = Column(DateTime(timezone=True), default=_now)
     updated_at     = Column(DateTime(timezone=True), default=_now, onupdate=_now)
 

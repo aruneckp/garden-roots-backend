@@ -50,13 +50,13 @@ def verify_token(token: str) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
-def create_user_token(user_id: int, email: str) -> str:
+def create_user_token(user_id: int, email: str, role: str = "customer") -> str:
     """Create JWT access token for a customer user."""
     expires = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {
         "user_id": user_id,
         "email": email,
-        "role": "user",
+        "role": role,
         "exp": expires,
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
@@ -91,7 +91,7 @@ async def get_current_user(
     except HTTPException:
         raise HTTPException(status_code=401, detail="Invalid authentication credentials")
 
-    if payload.get("role") != "user":
+    if payload.get("role") not in ("user", "customer", "admin"):
         raise HTTPException(status_code=403, detail="Not a user token")
 
     user_id = payload.get("user_id")

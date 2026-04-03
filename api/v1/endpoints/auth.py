@@ -34,6 +34,7 @@ class UserOut(BaseModel):
     name: Optional[str] = None
     picture: Optional[str] = None
     phone: Optional[str] = None
+    role: str = "customer"
 
     class Config:
         from_attributes = True
@@ -90,7 +91,7 @@ def google_login(payload: GoogleTokenIn, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
 
-    token = create_user_token(user.id, user.email)
+    token = create_user_token(user.id, user.email, user.role or "customer")
     return AuthResponse(
         token=token,
         user=UserOut.model_validate(user),

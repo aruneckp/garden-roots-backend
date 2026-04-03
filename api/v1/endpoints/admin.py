@@ -411,6 +411,15 @@ def get_shipment_payments(
     return get_payment_summary(db, shipment_id)
 
 
+@router.get("/payments/pending", response_model=dict)
+def get_pending_payments(
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Get all pending payments across shipments."""
+    return get_pending_payments_across_shipments(db)
+
+
 @router.put("/payments/{payment_id}/mark-paid", response_model=PaymentRecordOut)
 def mark_payment_as_paid(
     payment_id: int,
@@ -420,15 +429,6 @@ def mark_payment_as_paid(
 ):
     """Mark a payment as paid."""
     return mark_payment_paid(db, payment_id, payload)
-
-
-@router.get("/payments/pending", response_model=dict)
-def get_pending_payments(
-    current_admin: AdminUser = Depends(get_current_admin),
-    db: Session = Depends(get_db)
-):
-    """Get all pending payments across shipments."""
-    return get_pending_payments_across_shipments(db)
 
 
 # ============================================================================

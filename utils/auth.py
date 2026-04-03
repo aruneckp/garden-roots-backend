@@ -108,9 +108,10 @@ async def get_current_admin(
     """Dependency to get current authenticated admin user.
 
     Accepts two token types:
-    1. Legacy admin token (created by /admin/login) — looks up AdminUser table.
-    2. Google OAuth token (created by /auth/google) with role='admin' — looks up
-       User table. Returns a duck-typed object so callers get .id and .username.
+    1. Google OAuth token (has 'email' claim, no 'username') — looks up users table.
+    2. Legacy admin token (has 'username' claim, no 'email') — looks up admin_users table.
+
+    Both must carry role='admin' in the JWT (signed by our SECRET_KEY).
     """
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing authorization header")
@@ -131,20 +132,24 @@ async def get_current_admin(
 
     role = payload.get("role", "")
 
-    # --- Google OAuth admin: token has email claim, look up users table ---
-    if payload.get("email") or role == "admin" and not payload.get("username"):
+    # --- Google OAuth token: identified by presence of 'email' claim ---
+    if payload.get("email"):
+        if role != "admin":
+            raise HTTPException(status_code=403, detail="Not an admin token")
         google_user = db.query(User).filter(User.id == user_id).first()
-        if google_user and google_user.role == "admin":
-            # Return a minimal duck-typed wrapper so admin endpoints get .id / .username
-            class _GoogleAdminProxy:
-                def __init__(self, u):
-                    self.id       = u.id
-                    self.username = u.email
-                    self.role     = "admin"
-                    self.is_active= 1
-            return _GoogleAdminProxy(google_user)
+        if not google_user:
+            raise HTTPException(status_code=401, detail="User not found")
 
-    # --- Legacy admin token: look up admin_users table ---
+        class _GoogleAdminProxy:
+            def __init__(self, u):
+                self.id        = u.id
+                self.username  = u.email
+                self.role      = "admin"
+                self.is_active = 1
+
+        return _GoogleAdminProxy(google_user)
+
+    # --- Legacy admin token: identified by presence of 'username' claim ---
     user = db.query(AdminUser).filter(AdminUser.id == user_id).first()
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="Admin user not found or inactive")

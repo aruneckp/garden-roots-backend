@@ -1,5 +1,6 @@
+import json
 from typing import List
-from urllib.parse import quote_plus
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,23 +15,15 @@ class Settings(BaseSettings):
     db_user: str
     db_password: str
 
-    # Cloud ATP wallet — all three required together for wallet mode
-    db_tns_name: str = ""         # TNS alias e.g. gardenroots2026_tp
-    db_wallet_path: str = ""      # absolute path to wallet dir
-    db_wallet_password: str = ""  # password set when downloading wallet from OCI
-
-    # Cloud ATP thin mode — no wallet needed (mTLS must be disabled in OCI console)
-    db_dsn: str = ""              # full TCPS connection string from OCI console
-
-    # Local XE only (not used when wallet or dsn is configured)
+    # Local XE (no wallet needed)
     db_host: str = "localhost"
     db_port: int = 1521
     db_service: str = "XEPDB1"
 
-    # ── Oracle Wallet (required for Oracle Autonomous Database / cloud) ───────
-    # Store each file separately to stay under Railway's 32 KB env var limit.
-    oracle_ewallet_pem_b64: str = ""   # base64 of ewallet.pem (oracledb thin mode needs PEM not P12)
-    oracle_wallet_password: str = ""   # wallet password from OCI download dialog
+    # Cloud ADB — wallet files stored as env vars (base64/text), written to
+    # a temp dir at startup by database/connection.py
+    oracle_ewallet_pem_b64: str = ""   # base64 of ewallet.pem
+    oracle_wallet_password: str = ""   # wallet password from OCI
     oracle_tnsnames: str = ""          # full text of tnsnames.ora
     oracle_sqlnet: str = ""            # full text of sqlnet.ora
 
@@ -40,7 +33,18 @@ class Settings(BaseSettings):
     debug: bool = False
 
     # ── CORS ─────────────────────────────────────────────────────────────────
+    # Accepts JSON array or comma-separated string from Render env vars
     allowed_origins: List[str] = ["http://localhost:5173", "http://localhost:3000"]
+
+    @field_validator("allowed_origins", mode="before")
+    @classmethod
+    def parse_origins(cls, v):
+        if isinstance(v, str):
+            v = v.strip()
+            if v.startswith("["):
+                return json.loads(v)
+            return [o.strip() for o in v.split(",") if o.strip()]
+        return v
 
     # ── URLs ─────────────────────────────────────────────────────────────────
     app_url: str = "http://localhost:8000"
@@ -62,40 +66,6 @@ class Settings(BaseSettings):
     # ── Business rules ────────────────────────────────────────────────────────
     delivery_free_threshold: float = 120.0
     delivery_cost: float = 12.0
-
-    @property
-    def use_wallet(self) -> bool:
-        return bool(self.db_wallet_path and self.db_tns_name)
-
-    @property
-    def use_dsn(self) -> bool:
-        return bool(self.db_dsn)
-
-    @property
-    def db_connection_string(self) -> str:
-        user = quote_plus(self.db_user)
-        pw = quote_plus(self.db_password)
-        if self.use_wallet or self.use_dsn:
-            # Bare URL — DSN/TNS supplied via connect_args
-            return f"oracle+oracledb://{user}:{pw}@"
-        # Local XE — standard TCP
-        return (
-            f"oracle+oracledb://{user}:{pw}"
-            f"@{self.db_host}:{self.db_port}/?service_name={self.db_service}"
-        )
-
-    @property
-    def db_connect_args(self) -> dict:
-        if self.use_wallet:
-            return {
-                "dsn": self.db_tns_name,
-                "config_dir": self.db_wallet_path,
-                "wallet_location": self.db_wallet_path,
-                "wallet_password": self.db_wallet_password,
-            }
-        if self.use_dsn:
-            return {"dsn": self.db_dsn}
-        return {}
 
 
 settings = Settings()

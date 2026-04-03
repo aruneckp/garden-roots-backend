@@ -62,6 +62,18 @@ def create_user_token(user_id: int, email: str) -> str:
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
+def create_delivery_token(delivery_boy_id: int, username: str) -> str:
+    """Create JWT access token for a delivery boy."""
+    expires = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    payload = {
+        "user_id": delivery_boy_id,
+        "username": username,
+        "role": "delivery_boy",
+        "exp": expires,
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
 async def get_current_user(
     authorization: str = Header(None),
     db: Session = Depends(get_db)

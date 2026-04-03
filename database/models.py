@@ -107,6 +107,10 @@ class Order(Base):
     shipment_id         = Column(Integer, ForeignKey("shipments.id"), nullable=True, index=True)
     customer_notes      = Column(String(1000))
     delivery_feedback   = Column(String(2000))   # post-delivery comments from customer
+    # Delivery boy assignment
+    delivery_boy_id     = Column(Integer, ForeignKey("delivery_boys.id"), nullable=True, index=True)
+    delivery_code       = Column(String(50))     # e.g. karthik_20260410
+    assigned_at         = Column(DateTime(timezone=True))
     created_at          = Column(DateTime(timezone=True), default=_now)
     updated_at          = Column(DateTime(timezone=True), default=_now, onupdate=_now)
 
@@ -114,6 +118,7 @@ class Order(Base):
     user            = relationship("User", back_populates="orders")
     pickup_location = relationship("PickupLocation", foreign_keys=[pickup_location_id])
     shipment        = relationship("Shipment", foreign_keys=[shipment_id])
+    delivery_boy    = relationship("DeliveryBoy", back_populates="orders")
 
 
 class OrderItem(Base):
@@ -235,6 +240,8 @@ class ShipmentBox(Base):
     product_variant_id  = Column(Integer, ForeignKey("product_variants.id"))
     variety_size        = Column(String(50))
     quantity_per_variety = Column(Integer, default=1)
+    box_weight          = Column(Numeric(8, 2))    # weight per box in kg
+    price_per_kg        = Column(Numeric(10, 2))   # price per kg for this variety
     created_at          = Column(DateTime(timezone=True), default=_now)
     updated_at          = Column(DateTime(timezone=True), default=_now, onupdate=_now)
 
@@ -367,4 +374,44 @@ class BoxEntryLog(Base):
 
     box             = relationship("ShipmentBox", back_populates="entry_logs")
     admin_user      = relationship("AdminUser")
+
+
+# ============================================================================
+# DELIVERY BOY MODULE
+# ============================================================================
+
+class DeliveryBoy(Base):
+    """Delivery staff who fulfill home-delivery orders."""
+    __tablename__ = "delivery_boys"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    username      = Column(String(100), unique=True, nullable=False, index=True)
+    password_hash = Column(String(255), nullable=False)
+    full_name     = Column(String(150))
+    phone         = Column(String(20))
+    is_active     = Column(Integer, default=1)
+    created_at    = Column(DateTime(timezone=True), default=_now)
+    updated_at    = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+    orders        = relationship("Order", back_populates="delivery_boy")
+
+
+# ============================================================================
+# ORDER STATUS AUDIT LOG
+# ============================================================================
+
+class OrderStatusLog(Base):
+    """Audit trail for admin bulk order-status changes."""
+    __tablename__ = "order_status_logs"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    order_id    = Column(Integer, ForeignKey("orders.id"), nullable=False, index=True)
+    old_status  = Column(String(50))
+    new_status  = Column(String(50), nullable=False)
+    changed_by  = Column(Integer, ForeignKey("admin_users.id"))
+    note        = Column(String(500))
+    changed_at  = Column(DateTime(timezone=True), default=_now)
+
+    order       = relationship("Order")
+    admin_user  = relationship("AdminUser")
 

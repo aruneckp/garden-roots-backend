@@ -1,7 +1,7 @@
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, List
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, date
 
 
 # ============================================================================
@@ -50,12 +50,16 @@ class SPOCContactOut(BaseModel):
 class ShipmentVarietyIn(BaseModel):
     product_id: int
     box_count: int = 1
+    box_weight: Optional[float] = None    # weight per box in kg
+    price_per_kg: Optional[float] = None  # price per kg for this variety
 
 
 class ShipmentVarietyOut(BaseModel):
     product_id: Optional[int] = None
     variety_name: str
     box_count: int
+    box_weight: Optional[float] = None
+    price_per_kg: Optional[float] = None
 
 
 # ============================================================================
@@ -400,4 +404,63 @@ class ShipmentBoxEntryIn(BaseModel):
     delivery_charge: float = 0.0
     payment_status: Optional[str] = None
     delivery_status: Optional[str] = None
+
+
+# ============================================================================
+# Delivery Boy Schemas
+# ============================================================================
+
+class DeliveryBoyIn(BaseModel):
+    username:  str
+    password:  str
+    full_name: Optional[str] = None
+    phone:     Optional[str] = None
+
+
+class DeliveryBoyOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id:        int
+    username:  str
+    full_name: Optional[str] = None
+    phone:     Optional[str] = None
+    is_active: int
+    created_at: datetime
+
+
+class AssignDeliveryIn(BaseModel):
+    order_ids:      List[int]
+    delivery_date:  date   # used to build code: username_yyyymmdd
+
+
+class DeliveryBoyLoginIn(BaseModel):
+    username: str
+    password: str
+
+
+class DeliveryBoyTokenOut(BaseModel):
+    access_token:    str
+    token_type:      str = "bearer"
+    delivery_boy_id: int
+    username:        str
+    full_name:       Optional[str] = None
+
+
+# ============================================================================
+# Order Management Schemas
+# ============================================================================
+
+class OrderBulkStatusIn(BaseModel):
+    order_ids:  List[int]
+    new_status: str          # confirmed, shipped, delivered, cancelled, pending
+    note:       Optional[str] = None
+
+
+class OrderShipmentUpdate(BaseModel):
+    shipment_id: Optional[int] = None   # None to clear the link
+
+
+class OrderBulkShipmentIn(BaseModel):
+    shipment_id: int                         # shipment to assign
+    order_ids: Optional[List[int]] = None    # specific orders; None = all with null shipment_id
+    only_null: bool = True                   # when order_ids is None, skip orders already linked
 

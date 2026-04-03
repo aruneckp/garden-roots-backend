@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from database.connection import get_db
-from database.models import AdminUser
+from database.models import AdminUser, DeliveryBoy, Order, OrderStatusLog
 from utils.auth import get_current_admin, verify_password, create_access_token, hash_password
 from schemas.admin import (
     AdminLoginIn, AdminTokenOut,
@@ -16,6 +17,8 @@ from schemas.admin import (
     PaymentRecordIn, PaymentRecordOut, PaymentRecordUpdate, PaymentSummary,
     BoxEntryLogOut,
     ShipmentBoxEnhancedOut, ShipmentBoxEntryIn,
+    DeliveryBoyIn, DeliveryBoyOut, AssignDeliveryIn,
+    OrderBulkStatusIn, OrderShipmentUpdate, OrderBulkShipmentIn,
 )
 from services.admin_service import (
     create_spoc_contact, get_spoc_contact, get_all_spoc_contacts,
@@ -478,4 +481,357 @@ def get_shipment_status_report_endpoint(
 ):
     """Get detailed status report for a shipment."""
     return get_shipment_status_report(db, shipment_id)
+
+
+# ============================================================================
+# Delivery Boy Management Endpoints
+# ============================================================================
+
+@router.post("/delivery-boys", response_model=DeliveryBoyOut)
+def create_delivery_boy(
+    payload: DeliveryBoyIn,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Create a new delivery boy account."""
+    existing = db.query(DeliveryBoy).filter(DeliveryBoy.username == payload.username).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Username already exists")
+    boy = DeliveryBoy(
+        username=payload.username,
+        password_hash=hash_password(payload.password),
+        full_name=payload.full_name,
+        phone=payload.phone,
+    )
+    db.add(boy)
+    db.commit()
+    db.refresh(boy)
+    return boy
+
+
+@router.get("/delivery-boys", response_model=list[DeliveryBoyOut])
+def list_delivery_boys(
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """List all delivery boys."""
+    return db.query(DeliveryBoy).order_by(DeliveryBoy.full_name).all()
+
+
+@router.get("/orders/unassigned", response_model=list[dict])
+def get_unassigned_orders(
+    shipment_id: Optional[int] = Query(None),
+    order_status: Optional[str] = Query(None),
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Get paid home-delivery orders not yet assigned to a delivery boy."""
+    query = (
+        db.query(Order)
+        .filter(
+            Order.payment_status == "succeeded",
+            Order.delivery_type == "delivery",
+            Order.delivery_boy_id.is_(None),
+        )
+    )
+    if shipment_id:
+        query = query.filter(Order.shipment_id == shipment_id)
+    if order_status:
+        query = query.filter(Order.order_status == order_status)
+    orders = query.order_by(Order.created_at.desc()).all()
+    return [
+        {
+            "id": o.id,
+            "order_ref": o.order_ref,
+            "customer_name": o.customer_name,
+            "customer_phone": o.customer_phone,
+            "delivery_address": o.delivery_address,
+            "total_price": str(o.total_price),
+            "order_status": o.order_status,
+            "shipment_id": o.shipment_id,
+            "items_count": len(o.order_items),
+            "created_at": o.created_at.isoformat() if o.created_at else None,
+        }
+        for o in orders
+    ]
+
+
+@router.get("/orders/assigned", response_model=list[dict])
+def get_assigned_orders(
+    delivery_boy_id: Optional[int] = Query(None),
+    shipment_id: Optional[int] = Query(None),
+    order_status: Optional[str] = Query(None),
+    delivery_code: Optional[str] = Query(None),
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Get home-delivery orders that have been assigned to a delivery boy."""
+    query = (
+        db.query(Order)
+        .filter(
+            Order.delivery_type == "delivery",
+            Order.delivery_boy_id.isnot(None),
+        )
+    )
+    if delivery_boy_id:
+        query = query.filter(Order.delivery_boy_id == delivery_boy_id)
+    if shipment_id:
+        query = query.filter(Order.shipment_id == shipment_id)
+    if order_status:
+        query = query.filter(Order.order_status == order_status)
+    if delivery_code:
+        query = query.filter(Order.delivery_code == delivery_code)
+    orders = query.order_by(Order.assigned_at.desc()).all()
+    return [
+        {
+            "id": o.id,
+            "order_ref": o.order_ref,
+            "customer_name": o.customer_name,
+            "customer_phone": o.customer_phone,
+            "delivery_address": o.delivery_address,
+            "total_price": str(o.total_price),
+            "order_status": o.order_status,
+            "payment_status": o.payment_status,
+            "shipment_id": o.shipment_id,
+            "delivery_boy_id": o.delivery_boy_id,
+            "delivery_boy_name": o.delivery_boy.full_name or o.delivery_boy.username if o.delivery_boy else None,
+            "delivery_code": o.delivery_code,
+            "assigned_at": o.assigned_at.isoformat() if o.assigned_at else None,
+            "items_count": len(o.order_items),
+            "created_at": o.created_at.isoformat() if o.created_at else None,
+        }
+        for o in orders
+    ]
+
+
+# ============================================================================
+# Orders Management Endpoints
+# ============================================================================
+
+@router.get("/orders", response_model=list[dict])
+def list_all_orders(
+    delivery_type: Optional[str] = Query(None),
+    payment_status: Optional[str] = Query(None),
+    order_status: Optional[str] = Query(None),
+    pickup_location_id: Optional[int] = Query(None),
+    delivery_boy_id: Optional[int] = Query(None),
+    assigned: Optional[str] = Query(None),   # "yes" | "no"
+    payment_method: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),  # ISO date string YYYY-MM-DD
+    date_to: Optional[str] = Query(None),
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    List all orders with rich filtering:
+    delivery_type, payment_status, order_status, pickup_location_id,
+    delivery_boy_id, assigned (yes/no), payment_method, date_from, date_to.
+    """
+    from datetime import datetime, timezone
+    query = db.query(Order)
+
+    if delivery_type:
+        query = query.filter(Order.delivery_type == delivery_type)
+    if payment_status:
+        query = query.filter(Order.payment_status == payment_status)
+    if order_status:
+        query = query.filter(Order.order_status == order_status)
+    if pickup_location_id:
+        query = query.filter(Order.pickup_location_id == pickup_location_id)
+    if delivery_boy_id:
+        query = query.filter(Order.delivery_boy_id == delivery_boy_id)
+    if assigned == "yes":
+        query = query.filter(Order.delivery_boy_id.isnot(None))
+    elif assigned == "no":
+        query = query.filter(Order.delivery_boy_id.is_(None))
+    if payment_method:
+        query = query.filter(Order.payment_method == payment_method)
+    if date_from:
+        try:
+            dt_from = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            query = query.filter(Order.created_at >= dt_from)
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            dt_to = datetime.strptime(date_to, "%Y-%m-%d").replace(
+                hour=23, minute=59, second=59, tzinfo=timezone.utc
+            )
+            query = query.filter(Order.created_at <= dt_to)
+        except ValueError:
+            pass
+
+    orders = query.order_by(Order.created_at.desc()).all()
+
+    result = []
+    for o in orders:
+        items = [
+            {
+                "variant": (
+                    f"{i.product_variant.product.name} – {i.product_variant.size_name}"
+                    if i.product_variant and i.product_variant.product else "—"
+                ),
+                "qty": i.quantity,
+                "unit_price": str(i.unit_price),
+                "subtotal": str(i.subtotal),
+            }
+            for i in o.order_items
+        ]
+        result.append({
+            "id": o.id,
+            "order_ref": o.order_ref,
+            "customer_name": o.customer_name,
+            "customer_email": o.customer_email,
+            "customer_phone": o.customer_phone,
+            "delivery_type": o.delivery_type,
+            "delivery_address": o.delivery_address,
+            "pickup_location_id": o.pickup_location_id,
+            "pickup_location_name": o.pickup_location.name if o.pickup_location else None,
+            "order_status": o.order_status,
+            "payment_status": o.payment_status,
+            "payment_method": o.payment_method,
+            "subtotal": str(o.subtotal),
+            "delivery_fee": str(o.delivery_fee),
+            "total_price": str(o.total_price),
+            "delivery_boy_id": o.delivery_boy_id,
+            "delivery_boy_name": o.delivery_boy.full_name or o.delivery_boy.username if o.delivery_boy else None,
+            "delivery_code": o.delivery_code,
+            "assigned_at": o.assigned_at.isoformat() if o.assigned_at else None,
+            "customer_notes": o.customer_notes,
+            "shipment_id": o.shipment_id,
+            "items": items,
+            "items_count": len(items),
+            "created_at": o.created_at.isoformat() if o.created_at else None,
+        })
+    return result
+
+
+@router.get("/orders/null-shipment-count")
+def get_null_shipment_order_count(
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Return count of orders (delivery type) with no shipment linked."""
+    count = db.query(Order).filter(
+        Order.delivery_type == "delivery",
+        Order.shipment_id.is_(None),
+    ).count()
+    return {"count": count}
+
+
+@router.post("/orders/bulk-shipment")
+def bulk_assign_order_shipment(
+    payload: OrderBulkShipmentIn,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Assign a shipment to multiple orders in one call.
+    - If order_ids provided: assign only those orders.
+    - If order_ids is None and only_null=True: assign all delivery orders with null shipment_id.
+    - If order_ids is None and only_null=False: assign ALL delivery orders (overwrite existing).
+    """
+    from database.models import Shipment as ShipmentModel
+    shipment = db.query(ShipmentModel).filter(ShipmentModel.id == payload.shipment_id).first()
+    if not shipment:
+        raise HTTPException(status_code=404, detail=f"Shipment {payload.shipment_id} not found")
+
+    query = db.query(Order).filter(Order.delivery_type == "delivery")
+    if payload.order_ids:
+        query = query.filter(Order.id.in_(payload.order_ids))
+    elif payload.only_null:
+        query = query.filter(Order.shipment_id.is_(None))
+
+    orders = query.all()
+    for o in orders:
+        o.shipment_id = payload.shipment_id
+    db.commit()
+    return {
+        "updated": [o.id for o in orders],
+        "count": len(orders),
+        "shipment_id": payload.shipment_id,
+        "shipment_ref": shipment.shipment_ref,
+    }
+
+
+@router.put("/orders/{order_id}/shipment")
+def update_order_shipment(
+    order_id: int,
+    payload: OrderShipmentUpdate,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Admin: change or clear the shipment linked to an order."""
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if payload.shipment_id is not None:
+        from database.models import Shipment
+        if not db.query(Shipment).filter(Shipment.id == payload.shipment_id).first():
+            raise HTTPException(status_code=404, detail=f"Shipment {payload.shipment_id} not found")
+    order.shipment_id = payload.shipment_id
+    db.commit()
+    return {"order_id": order_id, "shipment_id": order.shipment_id}
+
+
+@router.put("/orders/bulk-status")
+def bulk_update_order_status(
+    payload: OrderBulkStatusIn,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Bulk-update order_status for a list of orders and write an audit log entry per order."""
+    updated = []
+    for order_id in payload.order_ids:
+        order = db.query(Order).filter(Order.id == order_id).first()
+        if not order:
+            continue
+        log = OrderStatusLog(
+            order_id=order_id,
+            old_status=order.order_status,
+            new_status=payload.new_status,
+            changed_by=current_admin.id,
+            note=payload.note,
+        )
+        db.add(log)
+        order.order_status = payload.new_status
+        updated.append(order_id)
+    db.commit()
+    return {
+        "updated": updated,
+        "new_status": payload.new_status,
+        "changed_by": current_admin.username,
+        "count": len(updated),
+    }
+
+
+@router.post("/delivery-boys/{delivery_boy_id}/assign")
+def assign_orders_to_delivery_boy(
+    delivery_boy_id: int,
+    payload: AssignDeliveryIn,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Assign orders to a delivery boy and generate daily delivery code."""
+    from datetime import datetime, timezone
+
+    boy = db.query(DeliveryBoy).filter(DeliveryBoy.id == delivery_boy_id, DeliveryBoy.is_active == 1).first()
+    if not boy:
+        raise HTTPException(status_code=404, detail="Delivery boy not found")
+
+    delivery_code = f"{boy.username}_{payload.delivery_date.strftime('%Y%m%d')}"
+    now = datetime.now(timezone.utc)
+
+    updated = []
+    for order_id in payload.order_ids:
+        order = db.query(Order).filter(Order.id == order_id).first()
+        if not order:
+            continue
+        order.delivery_boy_id = delivery_boy_id
+        order.delivery_code   = delivery_code
+        order.assigned_at     = now
+        updated.append(order_id)
+
+    db.commit()
+    return {"assigned": updated, "delivery_code": delivery_code}
 

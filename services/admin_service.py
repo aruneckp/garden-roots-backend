@@ -108,6 +108,8 @@ def create_shipment(db: Session, payload: ShipmentIn) -> ShipmentOut:
                 product_variant_id=None,
                 delivery_type="pending",
                 delivery_charge=0.0,
+                box_weight=variety.box_weight,
+                price_per_kg=variety.price_per_kg,
             )
             db.add(box)
         db.commit()
@@ -433,6 +435,8 @@ def generate_shipment_summary(db: Session, shipment_id: int) -> ShipmentConsolid
                     "variety_name": box.variety_size,
                     "product_variant_id": box.product_variant_id,
                     "box_count": 0,
+                    "box_weight": float(box.box_weight) if box.box_weight is not None else None,
+                    "price_per_kg": float(box.price_per_kg) if box.price_per_kg is not None else None,
                 }
             variety_map[key]["box_count"] += box.quantity_boxes
     varieties_list = list(variety_map.values())

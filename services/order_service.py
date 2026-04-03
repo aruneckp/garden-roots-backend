@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from config.settings import settings
-from database.models import Order, OrderItem, Pricing, ProductVariant, User
+from database.models import Order, OrderItem, Pricing, ProductVariant, User, Shipment
 from schemas.order import OrderIn, OrderOut
 from services.stock_service import reserve_stock, deduct_stock, release_stock
 
@@ -66,6 +66,14 @@ def create_order(db: Session, payload: OrderIn) -> OrderOut:
         exists = db.query(User.id).filter(User.id == payload.user_id).first()
         resolved_user_id = payload.user_id if exists else None
 
+    # Auto-tag the latest active (non-completed) shipment
+    latest_shipment = (
+        db.query(Shipment)
+        .filter(Shipment.status != "completed")
+        .order_by(Shipment.created_at.desc())
+        .first()
+    )
+
     order = Order(
         order_ref=_generate_order_ref(),
         user_id=resolved_user_id,
@@ -82,6 +90,7 @@ def create_order(db: Session, payload: OrderIn) -> OrderOut:
         delivery_address=payload.delivery_address,
         pickup_location_id=payload.pickup_location_id,
         customer_notes=payload.customer_notes,
+        shipment_id=latest_shipment.id if latest_shipment else None,
     )
     db.add(order)
     db.flush()

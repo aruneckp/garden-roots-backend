@@ -27,6 +27,26 @@ def _generate_shipment_ref() -> str:
     return f"SHP-{suffix}"
 
 
+def _calc_order_stats(orders: list) -> dict:
+    """Compute order status breakdown from a list of Order objects."""
+    total = len(orders)
+    booked       = sum(1 for o in orders if o.order_status in ("confirmed", "processing"))
+    pending      = sum(1 for o in orders if o.order_status == "pending")
+    in_transit   = sum(1 for o in orders if o.order_status == "in_transit")
+    delivered    = sum(1 for o in orders if o.order_status == "delivered")
+    cancelled    = sum(1 for o in orders if o.order_status == "cancelled")
+    yet_to_book  = sum(1 for o in orders if o.order_status not in ("confirmed", "processing", "in_transit", "delivered", "cancelled"))
+    return {
+        "orders_total":      total,
+        "orders_booked":     booked,
+        "orders_pending":    pending,
+        "orders_in_transit": in_transit,
+        "orders_delivered":  delivered,
+        "orders_cancelled":  cancelled,
+        "orders_yet_to_book": yet_to_book,
+    }
+
+
 # ============================================================================
 # SPOC Contact Functions
 # ============================================================================
@@ -353,61 +373,7 @@ def generate_shipment_summary(db: Session, shipment_id: int) -> ShipmentConsolid
             location_summary_dict[location_name]["self_collection_count"] += 1
         location_summary_dict[location_name]["receiver_count"] += 1
 
-    # If no deliveries, create mock summary based on boxes
-    if not delivery_locations and boxes:
-        mock_locations = [
-            "Mumbai Central Hub",
-            "Delhi Distribution Center",
-            "Bangalore Warehouse",
-            "Pune Logistics Park"
-        ]
-
-        boxes_per_location = max(1, len(boxes) // len(mock_locations))
-        location_idx = 0
-
-        for i, box in enumerate(boxes):
-            if i > 0 and i % boxes_per_location == 0 and location_idx < len(mock_locations) - 1:
-                location_idx += 1
-
-            location_name = mock_locations[location_idx]
-
-            delivery_locations.append({
-                "box_number": box.box_number,
-                "delivery_type": "Direct Delivery" if box.delivery_type == "direct-delivery" else "Self Collection",
-                "location": location_name,
-                "receiver": f"Receiver {i+1}",
-                "charge": float(box.delivery_charge) if box.delivery_type == "direct-delivery" else 0,
-                "delivery_date": None,
-                "phone": f"9876{5000000 + i}"
-            })
-
-            if location_name not in location_summary_dict:
-                location_summary_dict[location_name] = {
-                    "location": location_name,
-                    "boxes_count": 0,
-                    "direct_delivery_count": 0,
-                    "self_collection_count": 0,
-                    "total_revenue": 0,
-                    "receiver_count": 0
-                }
-
-            location_summary_dict[location_name]["boxes_count"] += 1
-            if box.delivery_type == "direct-delivery":
-                location_summary_dict[location_name]["direct_delivery_count"] += 1
-                location_summary_dict[location_name]["total_revenue"] += float(box.delivery_charge or 0)
-            else:
-                location_summary_dict[location_name]["self_collection_count"] += 1
-            location_summary_dict[location_name]["receiver_count"] += 1
-
-    # Ensure we have location summaries
-    summary_by_location = list(location_summary_dict.values()) if location_summary_dict else [{
-        "location": "To Be Determined",
-        "boxes_count": len(boxes),
-        "direct_delivery_count": direct_delivery_count,
-        "self_collection_count": self_collection_count,
-        "total_revenue": float(total_revenue),
-        "receiver_count": 0
-    }]
+    summary_by_location = list(location_summary_dict.values())
 
     # Update or create summary record in database
     summary = db.query(ShipmentSummary).filter(ShipmentSummary.shipment_id == shipment_id).first()
@@ -473,21 +439,34 @@ def get_dashboard_summary(db: Session) -> dict:
     total_revenue = Decimal("0")
     all_summaries = []
 
+    from database.models import Order
+
     for shipment in shipments:
         total_boxes += shipment.total_boxes
+
+        orders = db.query(Order).filter(Order.shipment_id == shipment.id).all()
+        order_stats = _calc_order_stats(orders)
 
         summary = db.query(ShipmentSummary).filter(ShipmentSummary.shipment_id == shipment.id).first()
         if summary:
             total_revenue += summary.total_delivery_revenue
-            all_summaries.append({
-                "shipment_ref": shipment.shipment_ref,
-                "total_boxes": shipment.total_boxes,
-                "direct_delivery": summary.boxes_delivered_direct,
-                "self_collection": summary.boxes_collected_self,
-                "damaged": summary.boxes_damaged,
-                "revenue": float(summary.total_delivery_revenue),
-                "status": shipment.status,
-            })
+        all_summaries.append({
+            "shipment_id": shipment.id,
+            "shipment_ref": shipment.shipment_ref,
+            "total_boxes": shipment.total_boxes,
+            "direct_delivery": summary.boxes_delivered_direct if summary else 0,
+            "self_collection": summary.boxes_collected_self if summary else 0,
+            "damaged": summary.boxes_damaged if summary else 0,
+            "revenue": float(summary.total_delivery_revenue) if summary else 0.0,
+            "status": shipment.status,
+            **order_stats,
+        })
+
+    yet_to_book = db.query(Order).filter(
+        Order.shipment_id.is_(None),
+        Order.payment_status == "succeeded",
+        Order.order_status != "cancelled",
+    ).count()
 
     return {
         "total_shipments": total_shipments,
@@ -496,8 +475,22 @@ def get_dashboard_summary(db: Session) -> dict:
         "in_transit_shipments": in_transit_shipments,
         "total_boxes": total_boxes,
         "total_delivery_revenue": float(total_revenue),
+        "yet_to_book_globally": yet_to_book,
         "shipment_summaries": all_summaries,
     }
+
+
+def get_shipment_order_stats(db: Session, shipment_id: int) -> dict:
+    """Return order status breakdown for a single shipment."""
+    from database.models import Order, Shipment as ShipmentModel
+
+    shipment = db.query(ShipmentModel).filter(ShipmentModel.id == shipment_id).first()
+    if not shipment:
+        raise HTTPException(status_code=404, detail="Shipment not found")
+
+    orders = db.query(Order).filter(Order.shipment_id == shipment_id).all()
+    stats = _calc_order_stats(orders)
+    return {"shipment_id": shipment_id, "shipment_ref": shipment.shipment_ref, **stats}
 
 
 # ============================================================================

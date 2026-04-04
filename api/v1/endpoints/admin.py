@@ -32,6 +32,7 @@ from services.admin_service import (
     record_payment, get_payment_summary, mark_payment_paid,
     receive_shipment, add_box_entry, update_box_delivery_status, get_reception_status,
     get_shipment_status_report, get_pending_payments_across_shipments,
+    get_shipment_order_stats,
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -272,6 +273,91 @@ def get_dashboard(
 ):
     """Get overall dashboard summary across all shipments."""
     return get_dashboard_summary(db)
+
+
+@router.get("/shipments/{shipment_id}/order-stats", response_model=dict)
+def get_order_stats(
+    shipment_id: int,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Get order status breakdown (booked, pending, in_transit, delivered, etc.) for a shipment."""
+    return get_shipment_order_stats(db, shipment_id)
+
+
+@router.get("/shipments/{shipment_id}/orders", response_model=list[dict])
+def get_shipment_orders(
+    shipment_id: int,
+    order_status: Optional[str] = Query(None),
+    payment_status: Optional[str] = Query(None),
+    delivery_type: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """List all orders linked to a shipment with optional filters."""
+    from datetime import datetime, timezone
+    query = db.query(Order).filter(Order.shipment_id == shipment_id)
+    if order_status:
+        query = query.filter(Order.order_status == order_status)
+    if payment_status:
+        query = query.filter(Order.payment_status == payment_status)
+    if delivery_type:
+        query = query.filter(Order.delivery_type == delivery_type)
+    if date_from:
+        try:
+            query = query.filter(Order.created_at >= datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc))
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            dt_to = datetime.strptime(date_to, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+            query = query.filter(Order.created_at <= dt_to)
+        except ValueError:
+            pass
+    orders = query.order_by(Order.created_at.desc()).all()
+    result = []
+    for o in orders:
+        items = [
+            {
+                "variant": (
+                    f"{i.product_variant.product.name} – {i.product_variant.size_name}"
+                    if i.product_variant and i.product_variant.product else "—"
+                ),
+                "qty": i.quantity,
+                "unit_price": str(i.unit_price),
+                "subtotal": str(i.subtotal),
+            }
+            for i in o.order_items
+        ]
+        result.append({
+            "id": o.id,
+            "order_ref": o.order_ref,
+            "customer_name": o.customer_name,
+            "customer_email": o.customer_email,
+            "customer_phone": o.customer_phone,
+            "delivery_type": o.delivery_type,
+            "delivery_address": o.delivery_address,
+            "pickup_location_id": o.pickup_location_id,
+            "pickup_location_name": o.pickup_location.name if o.pickup_location else None,
+            "order_status": o.order_status,
+            "payment_status": o.payment_status,
+            "payment_method": o.payment_method,
+            "subtotal": str(o.subtotal),
+            "delivery_fee": str(o.delivery_fee),
+            "total_price": str(o.total_price),
+            "delivery_boy_id": o.delivery_boy_id,
+            "delivery_boy_name": (o.delivery_boy.full_name or o.delivery_boy.username) if o.delivery_boy else None,
+            "delivery_code": o.delivery_code,
+            "assigned_at": o.assigned_at.isoformat() if o.assigned_at else None,
+            "customer_notes": o.customer_notes,
+            "shipment_id": o.shipment_id,
+            "items": items,
+            "items_count": len(items),
+            "created_at": o.created_at.isoformat() if o.created_at else None,
+        })
+    return result
 
 
 # ============================================================================
@@ -802,6 +888,30 @@ def bulk_update_order_status(
         "new_status": payload.new_status,
         "changed_by": current_admin.username,
         "count": len(updated),
+    }
+
+
+@router.put("/orders/{order_id}/collect-payment")
+def collect_pay_later_payment(
+    order_id: int,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Mark a pay_later order's payment as collected (succeeded)."""
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.payment_method != "pay_later":
+        raise HTTPException(status_code=400, detail="This endpoint is only for pay_later orders")
+    if order.payment_status == "succeeded":
+        raise HTTPException(status_code=409, detail="Payment already marked as collected")
+    order.payment_status = "succeeded"
+    db.commit()
+    return {
+        "order_id": order.id,
+        "order_ref": order.order_ref,
+        "payment_status": order.payment_status,
+        "message": "Payment marked as collected",
     }
 
 

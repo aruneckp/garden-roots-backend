@@ -14,7 +14,7 @@ class OrderIn(BaseModel):
     customer_name: str = Field(..., min_length=1, max_length=150)
     customer_email: Optional[EmailStr] = None
     customer_phone: Optional[str] = None
-    payment_method: str = Field(..., pattern="^(paynow)$")
+    payment_method: str = Field(..., pattern="^(paynow|pay_later)$")
     delivery_type: Literal["delivery", "pickup"] = "delivery"
     delivery_address: Optional[str] = None
     pickup_location_id: Optional[int] = None

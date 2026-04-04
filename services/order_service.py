@@ -74,6 +74,8 @@ def create_order(db: Session, payload: OrderIn) -> OrderOut:
         .first()
     )
 
+    is_pay_later = payload.payment_method == "pay_later"
+
     order = Order(
         order_ref=_generate_order_ref(),
         user_id=resolved_user_id,
@@ -84,8 +86,9 @@ def create_order(db: Session, payload: OrderIn) -> OrderOut:
         delivery_fee=delivery_fee,
         total_price=total,
         payment_method=payload.payment_method,
+        # pay_later orders are immediately confirmed; payment collected later by admin
         payment_status="pending",
-        order_status="pending",
+        order_status="confirmed" if is_pay_later else "pending",
         delivery_type=payload.delivery_type,
         delivery_address=payload.delivery_address,
         pickup_location_id=payload.pickup_location_id,
@@ -103,6 +106,11 @@ def create_order(db: Session, payload: OrderIn) -> OrderOut:
             unit_price=price,
             subtotal=item_sub,
         ))
+
+    # pay_later: deduct stock immediately (admin confirmed the order; payment collected later)
+    if is_pay_later:
+        for variant, qty, _, _ in line_items:
+            deduct_stock(db, variant.id, qty)
 
     db.commit()
     db.refresh(order)

@@ -30,12 +30,32 @@ class PaymentCreateRequest(BaseModel):
     customer_phone: Optional[str] = None
 
 
+class PaymentLinkRequest(BaseModel):
+    amount: Optional[float] = None  # None for "any amount"
+    description: str = "Garden Roots Order"
+    order_id: int
+    customer_name: Optional[str] = None
+    customer_email: Optional[str] = None
+    customer_phone: Optional[str] = None
+    allow_any_amount: bool = False  # Customer can choose amount
+
+
 class PaymentCreateResponse(BaseModel):
     payment_intent_id: str    # HitPay payment_request_id
     payment_url: str          # HitPay hosted checkout URL — redirect customer here
     status: str
     amount: float
     currency: str = "SGD"
+
+
+class PaymentLinkResponse(BaseModel):
+    payment_link_id: str      # HitPay payment link ID
+    payment_url: str          # Shareable payment link URL
+    qr_code_url: Optional[str] = None  # QR code image URL if generated
+    status: str
+    amount: Optional[float] = None
+    currency: str = "SGD"
+    allow_any_amount: bool = False
 
 
 class PaymentStatusResponse(BaseModel):

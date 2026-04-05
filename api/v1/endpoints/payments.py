@@ -9,6 +9,8 @@ from services import order_service
 from schemas.common import (
     PaymentCreateRequest,
     PaymentCreateResponse,
+    PaymentLinkRequest,
+    PaymentLinkResponse,
     PaymentStatusResponse,
     PaymentConfirmResponse,
 )
@@ -21,8 +23,8 @@ router = APIRouter(prefix="/payments", tags=["payments"])
 @router.post("/create-payment", response_model=PaymentCreateResponse)
 def create_payment(request: PaymentCreateRequest):
     """
-    Create a HitPay PayNow payment request.
-    Returns the HitPay hosted checkout URL — frontend redirects the customer there.
+    Create a HitPay PayNow payment request (QR code only).
+    Returns the HitPay hosted checkout URL — frontend redirects customer there.
     """
     if request.amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be greater than 0")
@@ -41,6 +43,30 @@ def create_payment(request: PaymentCreateRequest):
     except Exception as e:
         logger.error("Error creating HitPay payment: %s", e)
         raise HTTPException(status_code=500, detail="Error creating payment")
+
+
+@router.post("/create-payment-link", response_model=PaymentLinkResponse)
+def create_payment_link(request: PaymentLinkRequest):
+    """
+    Create a HitPay payment link that shows ALL available payment methods.
+    This is better than QR-only as it gives customers payment choice.
+    Returns a shareable payment link URL.
+    """
+    try:
+        result = PaymentService.create_payment_link(
+            amount=request.amount,
+            order_id=request.order_id,
+            customer_name=request.customer_name or "",
+            customer_email=request.customer_email or "",
+            customer_phone=request.customer_phone or "",
+            allow_any_amount=request.allow_any_amount,
+        )
+        return PaymentLinkResponse(**result)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error creating HitPay payment link: %s", e)
+        raise HTTPException(status_code=500, detail="Error creating payment link")
 
 
 @router.get("/status/{payment_request_id}", response_model=PaymentStatusResponse)

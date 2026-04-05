@@ -110,6 +110,71 @@ class PaymentService:
         }
 
     @staticmethod
+    def create_payment_link(
+        amount: float = None,
+        order_id: int = None,
+        customer_name: str = "",
+        customer_email: str = "",
+        customer_phone: str = "",
+        allow_any_amount: bool = False,
+    ) -> dict:
+        """
+        Create a HitPay payment link that shows ALL available payment methods.
+        This is better than QR-only as it gives customers choice.
+        Returns a shareable payment link URL.
+        """
+        _assert_configured()
+
+        payload = {
+            "currency": "SGD",
+            "reference_number": f"GR-ORDER-{order_id}" if order_id else "GR-LINK",
+            "redirect_url": f"{settings.frontend_url}/",
+        }
+        
+        # Set amount only if specified and not allowing any amount
+        if amount and not allow_any_amount:
+            payload["amount"] = f"{amount:.2f}"
+        
+        # Webhook for payment confirmation
+        if not settings.hitpay_is_sandbox:
+            payload["webhook"] = f"{settings.app_url}/api/v1/payments/hitpay-webhook"
+        
+        # Customer information
+        if customer_name:
+            payload["name"] = customer_name
+        if customer_email:
+            payload["email"] = customer_email
+        if customer_phone:
+            payload["phone"] = customer_phone
+
+        # Create payment link instead of payment request
+        resp = requests.post(
+            f"{_api_base()}/payment-requests",
+            json=payload,
+            headers=_headers(),
+            timeout=15,
+        )
+
+        if not resp.ok:
+            logger.error("HitPay payment link create error: %s %s", resp.status_code, resp.text)
+            raise HTTPException(status_code=502, detail="Payment gateway error. Please try again.")
+
+        data = resp.json()
+        logger.info(
+            "HitPay payment link created: id=%s  amount=%s  order_id=%s",
+            data["id"], f"SGD{amount}" if amount else "any", order_id,
+        )
+
+        return {
+            "payment_link_id": data["id"],
+            "payment_url": data["url"],
+            "status": "pending",
+            "amount": amount,
+            "currency": "SGD",
+            "allow_any_amount": allow_any_amount,
+        }
+
+    @staticmethod
     def get_payment_status(payment_request_id: str) -> dict:
         """Retrieve current status of a HitPay payment request."""
         _assert_configured()

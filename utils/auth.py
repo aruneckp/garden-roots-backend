@@ -155,3 +155,45 @@ async def get_current_admin(
         raise HTTPException(status_code=401, detail="Admin user not found or inactive")
 
     return user
+
+
+async def get_optional_admin(
+    authorization: str = Header(None),
+    db: Session = Depends(get_db)
+):
+    """Optional admin dependency — returns the admin object if a valid admin token is present,
+    or None if no/invalid token is provided. Used on public endpoints that may be called by admins."""
+    if not authorization:
+        return None
+    try:
+        parts = authorization.split()
+        if len(parts) != 2 or parts[0].lower() != "bearer":
+            return None
+        payload = verify_token(parts[1])
+        if payload.get("role") != "admin":
+            return None
+        user_id = payload.get("user_id")
+        if not user_id:
+            return None
+        # Google OAuth admin
+        if payload.get("email"):
+            google_user = db.query(User).filter(User.id == user_id).first()
+            if not google_user:
+                return None
+
+            class _GoogleAdminProxy:
+                def __init__(self, u):
+                    self.id        = u.id
+                    self.username  = u.email
+                    self.full_name = u.name if hasattr(u, 'name') else u.email
+                    self.role      = "admin"
+                    self.is_active = 1
+
+            return _GoogleAdminProxy(google_user)
+        # Legacy admin
+        user = db.query(AdminUser).filter(AdminUser.id == user_id).first()
+        if not user or not user.is_active:
+            return None
+        return user
+    except Exception:
+        return None

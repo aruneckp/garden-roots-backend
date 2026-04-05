@@ -111,6 +111,8 @@ class Order(Base):
     delivery_boy_id     = Column(Integer, ForeignKey("delivery_boys.id"), nullable=True, index=True)
     delivery_code       = Column(String(50))     # e.g. karthik_20260410
     assigned_at         = Column(DateTime(timezone=True))
+    booked_by_admin_id  = Column(Integer, nullable=True)   # ID of admin who created order (no FK: may be admin_users or users table)
+    booked_by_admin_name = Column(String(150), nullable=True)  # Display name of admin for follow-up
     created_at          = Column(DateTime(timezone=True), default=_now)
     updated_at          = Column(DateTime(timezone=True), default=_now, onupdate=_now)
 

@@ -5,17 +5,23 @@ from database.connection import get_db
 from schemas.order import OrderIn, OrderOut, PaymentConfirmIn
 from schemas.common import APIResponse
 from services import order_service
+from utils.auth import get_optional_admin
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
 
 @router.post("", response_model=APIResponse[OrderOut], status_code=201)
-def create_order(payload: OrderIn, db: Session = Depends(get_db)):
+async def create_order(
+    payload: OrderIn,
+    db: Session = Depends(get_db),
+    booked_by_admin=Depends(get_optional_admin),
+):
     """
     Create a new order.
     Validates stock, reserves inventory, computes delivery fee, and persists to Oracle.
+    If an admin token is present, records which admin booked the order.
     """
-    data = order_service.create_order(db, payload)
+    data = order_service.create_order(db, payload, booked_by_admin=booked_by_admin)
     return APIResponse(data=data, message="Order created successfully")
 
 

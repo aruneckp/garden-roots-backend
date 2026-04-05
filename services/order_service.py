@@ -32,7 +32,7 @@ def _get_current_price(variant: ProductVariant) -> Decimal:
     )
 
 
-def create_order(db: Session, payload: OrderIn) -> OrderOut:
+def create_order(db: Session, payload: OrderIn, booked_by_admin=None) -> OrderOut:
     # 1. Resolve variants and prices
     line_items = []
     subtotal = Decimal("0")
@@ -94,6 +94,10 @@ def create_order(db: Session, payload: OrderIn) -> OrderOut:
         pickup_location_id=payload.pickup_location_id,
         customer_notes=payload.customer_notes,
         shipment_id=latest_shipment.id if latest_shipment else None,
+        booked_by_admin_id=booked_by_admin.id if booked_by_admin else None,
+        booked_by_admin_name=(
+            getattr(booked_by_admin, 'full_name', None) or getattr(booked_by_admin, 'username', None)
+        ) if booked_by_admin else None,
     )
     db.add(order)
     db.flush()

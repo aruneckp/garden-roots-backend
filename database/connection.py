@@ -6,16 +6,18 @@ import tempfile
 from typing import Optional
 
 import oracledb
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, MetaData, text
 from sqlalchemy.pool import QueuePool
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
+_schema = settings.db_schema or None
+
 
 class Base(DeclarativeBase):
-    pass
+    metadata = MetaData(schema=_schema)
 
 
 def _build_wallet_dir() -> Optional[str]:
@@ -115,6 +117,9 @@ engine = create_engine(
     pool_recycle=3600,
     echo=settings.debug,
 )
+
+if _schema:
+    logger.info("Oracle schema: %s", _schema)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

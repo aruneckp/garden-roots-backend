@@ -19,6 +19,7 @@ class OrderIn(BaseModel):
     delivery_address: Optional[str] = None
     pickup_location_id: Optional[int] = None
     customer_notes: Optional[str] = Field(None, max_length=1000)
+    postal_code: Optional[str] = Field(None, pattern=r"^\d{6}$")
     user_id: Optional[int] = None  # set when user is logged in
 
     @model_validator(mode="after")

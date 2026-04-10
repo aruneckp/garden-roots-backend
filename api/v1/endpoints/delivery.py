@@ -1,3 +1,5 @@
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
@@ -6,6 +8,7 @@ from database.connection import get_db
 from database.models import DeliveryBoy, Order, OrderItem
 from utils.auth import verify_password, create_delivery_token, verify_token
 from schemas.admin import DeliveryBoyLoginIn, DeliveryBoyTokenOut
+from services.delivery_fee_service import get_delivery_fee_async
 
 router = APIRouter(prefix="/delivery", tags=["delivery"])
 
@@ -34,6 +37,18 @@ def get_current_delivery_boy(
 
 
 # ─── Endpoints ──────────────────────────────────────────────────────────────
+
+@router.get("/fee")
+async def get_fee(postal_code: str):
+    """
+    Calculate delivery fee for a Singapore postal code using Google Distance Matrix.
+    Returns fee (SGD), driving distance (km), and zone label.
+    No authentication required — called from the checkout UI.
+    """
+    if not re.match(r"^\d{6}$", postal_code):
+        raise HTTPException(status_code=422, detail="postal_code must be exactly 6 digits")
+    return await get_delivery_fee_async(postal_code)
+
 
 @router.post("/login", response_model=DeliveryBoyTokenOut)
 def delivery_login(payload: DeliveryBoyLoginIn, db: Session = Depends(get_db)):

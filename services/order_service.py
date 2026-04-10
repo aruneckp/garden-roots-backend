@@ -12,6 +12,7 @@ from config.settings import settings
 from database.models import Order, OrderItem, Pricing, ProductVariant, User, Shipment
 from schemas.order import OrderIn, OrderOut
 from services.stock_service import reserve_stock, deduct_stock, release_stock
+from services.delivery_fee_service import get_delivery_fee_sync
 
 
 def _generate_order_ref() -> str:
@@ -47,12 +48,11 @@ def create_order(db: Session, payload: OrderIn, booked_by_admin=None) -> OrderOu
         subtotal += item_subtotal
         line_items.append((variant, item.quantity, price, item_subtotal))
 
-    # 2. Compute delivery fee (always $0 for self-pickup)
+    # 2. Compute delivery fee via Google Distance Matrix (pickup is always free)
     if payload.delivery_type == "pickup":
         delivery_fee = Decimal("0")
     else:
-        threshold = Decimal(str(settings.delivery_free_threshold))
-        delivery_fee = Decimal("0") if subtotal >= threshold else Decimal(str(settings.delivery_cost))
+        delivery_fee = get_delivery_fee_sync(payload.postal_code)
     total = subtotal + delivery_fee
 
     # 3. Reserve stock atomically

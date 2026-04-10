@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     oracle_tnsnames: str = ""          # full text of tnsnames.ora
     oracle_sqlnet: str = ""            # full text of sqlnet.ora
 
+    # Oracle schema — if set, all queries run against this schema instead of
+    # the connecting user's default schema (e.g. "sg_dev")
+    db_schema: str = ""
+
     # ── FastAPI ───────────────────────────────────────────────────────────────
     api_title: str = "Garden Roots API"
     api_version: str = "1.0.0"
@@ -63,7 +67,20 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
 
-    # ── Business rules ────────────────────────────────────────────────────────
+    # ── Google Maps (Distance Matrix) ─────────────────────────────────────────
+    google_maps_api_key: str = ""
+    # Warehouse / source postal code used as the origin for distance calculations
+    delivery_source_postal: str = "018956"
+    # Driving distance threshold (km) — at or below this → near fee
+    delivery_near_max_km: float = 10.0
+    # Delivery fee for nearby orders (SGD)
+    delivery_near_fee: float = 5.0
+    # Delivery fee for standard / far orders (SGD)
+    delivery_far_fee: float = 10.0
+    # Comma-separated area names that always get the near fee regardless of distance
+    flat_fee_areas: str = "tampines,punggol,sengkang,pasir ris"
+
+    # ── Business rules (legacy — kept for reference) ──────────────────────────
     delivery_free_threshold: float = 120.0
     delivery_cost: float = 12.0
 

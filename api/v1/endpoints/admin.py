@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from database.connection import get_db
-from database.models import AdminUser, DeliveryBoy, Order, OrderStatusLog
+from database.models import AdminUser, DeliveryBoy, Order, OrderStatusLog, User
 from utils.auth import get_current_admin, verify_password, create_access_token, hash_password
 from schemas.admin import (
     AdminLoginIn, AdminTokenOut,
@@ -949,3 +949,17 @@ def assign_orders_to_delivery_boy(
     db.commit()
     return {"assigned": updated, "delivery_code": delivery_code}
 
+
+
+# ============================================================================
+# Customer Users List (for promo assignment etc.)
+# ============================================================================
+
+@router.get("/users", tags=["admin"])
+def list_customer_users(
+    db: Session = Depends(get_db),
+    _admin=Depends(get_current_admin),
+):
+    """Return all registered customer users (admin only)."""
+    users = db.query(User).order_by(User.name).all()
+    return [{"id": u.id, "name": u.name, "email": u.email} for u in users]

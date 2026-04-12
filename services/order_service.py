@@ -9,10 +9,11 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from config.settings import settings
-from database.models import Order, OrderItem, Pricing, ProductVariant, User, Shipment
+from database.models import Order, OrderItem, Pricing, ProductVariant, User, Shipment, PromoCode
 from schemas.order import OrderIn, OrderOut
 from services.stock_service import reserve_stock, deduct_stock, release_stock
 from services.delivery_fee_service import get_delivery_fee_sync
+from services.promo_service import validate_promo, record_promo_usage
 
 
 def _generate_order_ref() -> str:
@@ -53,13 +54,32 @@ def create_order(db: Session, payload: OrderIn, booked_by_admin=None) -> OrderOu
         delivery_fee = Decimal("0")
     else:
         delivery_fee = get_delivery_fee_sync(payload.postal_code)
-    total = subtotal + delivery_fee
 
-    # 3. Reserve stock atomically
+    # 3. Validate and apply promo code (re-validated here even if frontend pre-checked)
+    discount_amount = Decimal("0")
+    applied_promo_code = None
+    applied_promo_id = None
+    if payload.promo_code and payload.promo_code.strip():
+        promo_info = validate_promo(
+            db,
+            code=payload.promo_code.strip(),
+            order_subtotal=subtotal,
+            user_id=payload.user_id,
+            delivery_type=payload.delivery_type,
+            pickup_location_id=payload.pickup_location_id,
+            is_admin_override=booked_by_admin is not None,
+        )
+        discount_amount = promo_info["discount_amount"]
+        applied_promo_code = promo_info["code"]
+        applied_promo_id = promo_info["promo_code_id"]
+
+    total = subtotal - discount_amount + delivery_fee
+
+    # 4. Reserve stock atomically
     for variant, qty, _, _ in line_items:
         reserve_stock(db, variant.id, qty)
 
-    # 4. Persist order
+    # 5. Persist order
     # Validate user_id — guard against stale client-side IDs after a DB migration
     resolved_user_id = None
     if payload.user_id is not None:
@@ -98,9 +118,11 @@ def create_order(db: Session, payload: OrderIn, booked_by_admin=None) -> OrderOu
         booked_by_admin_name=(
             getattr(booked_by_admin, 'full_name', None) or getattr(booked_by_admin, 'username', None)
         ) if booked_by_admin else None,
+        promo_code=applied_promo_code,
+        discount_amount=discount_amount,
     )
     db.add(order)
-    db.flush()
+    db.flush()  # assigns order.id
 
     for variant, qty, price, item_sub in line_items:
         db.add(OrderItem(
@@ -110,6 +132,10 @@ def create_order(db: Session, payload: OrderIn, booked_by_admin=None) -> OrderOu
             unit_price=price,
             subtotal=item_sub,
         ))
+
+    # Record promo usage now that order.id is assigned
+    if applied_promo_id is not None:
+        record_promo_usage(db, applied_promo_id, resolved_user_id, order.id)
 
     # pay_later: deduct stock immediately (admin confirmed the order; payment collected later)
     if is_pay_later:

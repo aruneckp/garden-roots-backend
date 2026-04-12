@@ -3,7 +3,7 @@
 .env.local
 .env.production
 *.env
-.pyc
+*.pyc
 __pycache__/
 wallet/
 logs/

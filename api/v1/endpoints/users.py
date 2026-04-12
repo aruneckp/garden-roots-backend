@@ -78,6 +78,7 @@ class UserOrderOut(BaseModel):
 # Endpoints
 # ---------------------------------------------------------------------------
 
+
 @router.get("/me", response_model=UserProfileOut)
 def get_me(current_user: User = Depends(get_current_user)):
     """Return the currently logged-in user's profile."""

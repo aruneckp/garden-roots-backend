@@ -114,6 +114,8 @@ class Order(Base):
     assigned_at         = Column(DateTime(timezone=True))
     booked_by_admin_id  = Column(Integer, nullable=True)   # ID of admin who created order (no FK: may be admin_users or users table)
     booked_by_admin_name = Column(String(150), nullable=True)  # Display name of admin for follow-up
+    promo_code          = Column(String(50), nullable=True)    # Applied promo code (if any)
+    discount_amount     = Column(Numeric(10, 2), default=0)    # Amount discounted by promo
     created_at          = Column(DateTime(timezone=True), default=_now)
     updated_at          = Column(DateTime(timezone=True), default=_now, onupdate=_now)
 
@@ -433,4 +435,53 @@ class SiteConfig(Base):
     config_value = Column(String(2000))
     description  = Column(String(300))
     updated_at   = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
+# ============================================================================
+# PROMO CODE MODULE
+# ============================================================================
+
+class PromoCode(Base):
+    """Promotional discount codes managed by admin."""
+    __tablename__ = "promo_codes"
+
+    id                   = Column(Integer, primary_key=True, index=True)
+    code                 = Column(String(50), unique=True, nullable=False, index=True)
+    # 'global' | 'user_specific' | 'location_specific'
+    promo_type           = Column(String(30), nullable=False, default="global")
+    # 'fixed' | 'percentage'
+    discount_type        = Column(String(20), nullable=False, default="fixed")
+    discount_value       = Column(Numeric(10, 2), nullable=False)
+    expiry_date          = Column(DateTime(timezone=True), nullable=False)
+    min_order_amount     = Column(Numeric(10, 2), default=0)
+    # Max times a single user can redeem this code
+    redemption_limit     = Column(Integer, default=1, nullable=False)
+    # Running total of all usages across all users
+    total_used           = Column(Integer, default=0, nullable=False)
+    is_active            = Column(Integer, default=1, nullable=False, index=True)
+    # For user_specific type
+    specific_user_id     = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    # For location_specific type
+    specific_location_id = Column(Integer, ForeignKey("pickup_locations.id"), nullable=True, index=True)
+    created_at           = Column(DateTime(timezone=True), default=_now)
+    updated_at           = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+    usages               = relationship("PromoUsage", back_populates="promo", cascade="all, delete-orphan")
+    specific_user        = relationship("User", foreign_keys=[specific_user_id])
+    specific_location    = relationship("PickupLocation", foreign_keys=[specific_location_id])
+
+
+class PromoUsage(Base):
+    """One row per promo code redemption, written only after a successful order."""
+    __tablename__ = "promo_usages"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    promo_code_id = Column(Integer, ForeignKey("promo_codes.id"), nullable=False, index=True)
+    user_id       = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    order_id      = Column(Integer, ForeignKey("orders.id"), nullable=False, index=True)
+    used_at       = Column(DateTime(timezone=True), default=_now)
+
+    promo         = relationship("PromoCode", back_populates="usages")
+    user          = relationship("User")
+    order         = relationship("Order")
 

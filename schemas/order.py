@@ -21,6 +21,7 @@ class OrderIn(BaseModel):
     customer_notes: Optional[str] = Field(None, max_length=1000)
     postal_code: Optional[str] = Field(None, pattern=r"^\d{6}$")
     user_id: Optional[int] = None  # set when user is logged in
+    promo_code: Optional[str] = Field(None, max_length=50)
 
     @model_validator(mode="after")
     def validate_delivery_requirements(self) -> "OrderIn":
@@ -72,6 +73,8 @@ class OrderOut(BaseModel):
     pickup_location: Optional[PickupLocationPublicOut] = None
     shipment_id: Optional[int] = None
     customer_notes: Optional[str] = None
+    promo_code: Optional[str] = None
+    discount_amount: Decimal = Decimal("0")
     created_at: datetime
     order_items: List[OrderItemOut] = []
 

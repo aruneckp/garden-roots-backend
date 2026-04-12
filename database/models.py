@@ -22,6 +22,7 @@ class Product(Base):
     season_start= Column(String(10))
     season_end  = Column(String(10))
     tag         = Column(String(50))
+    is_active   = Column(Integer, default=1, nullable=False)
     created_at  = Column(DateTime(timezone=True), default=_now)
     updated_at  = Column(DateTime(timezone=True), default=_now, onupdate=_now)
 
@@ -417,4 +418,19 @@ class OrderStatusLog(Base):
 
     order       = relationship("Order")
     admin_user  = relationship("AdminUser")
+
+
+# ============================================================================
+# SITE CONFIGURATION
+# ============================================================================
+
+class SiteConfig(Base):
+    """Central key/value config table for site-wide settings."""
+    __tablename__ = "site_config"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    config_key   = Column(String(100), unique=True, nullable=False, index=True)
+    config_value = Column(String(2000))
+    description  = Column(String(300))
+    updated_at   = Column(DateTime(timezone=True), default=_now, onupdate=_now)
 

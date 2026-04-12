@@ -51,6 +51,7 @@ def _build_product_out(product: Product) -> ProductOut:
         season_start=product.season_start,
         season_end=product.season_end,
         tag=product.tag,
+        is_active=product.is_active if product.is_active is not None else 1,
         variants=[_build_variant_out(v) for v in product.variants],
     )
 

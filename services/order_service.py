@@ -52,6 +52,8 @@ def create_order(db: Session, payload: OrderIn, booked_by_admin=None) -> OrderOu
     # 2. Compute delivery fee via Google Distance Matrix (pickup is always free)
     if payload.delivery_type == "pickup":
         delivery_fee = Decimal("0")
+    elif subtotal >= Decimal(str(settings.delivery_free_threshold)):
+        delivery_fee = Decimal("0")
     else:
         delivery_fee = get_delivery_fee_sync(payload.postal_code)
 

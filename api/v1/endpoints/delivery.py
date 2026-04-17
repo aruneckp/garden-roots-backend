@@ -39,7 +39,7 @@ def get_current_delivery_boy(
 # ─── Endpoints ──────────────────────────────────────────────────────────────
 
 @router.get("/fee")
-async def get_fee(postal_code: str):
+async def get_fee(postal_code: str, cart_total: float = None):
     """
     Calculate delivery fee for a Singapore postal code using Google Distance Matrix.
     Returns fee (SGD), driving distance (km), and zone label.
@@ -47,7 +47,10 @@ async def get_fee(postal_code: str):
     """
     if not re.match(r"^\d{6}$", postal_code):
         raise HTTPException(status_code=422, detail="postal_code must be exactly 6 digits")
-    return await get_delivery_fee_async(postal_code)
+    result = await get_delivery_fee_async(postal_code)
+    if cart_total is not None and cart_total >= result.get("free_threshold", float("inf")):
+        result["fee"] = 0.0
+    return result
 
 
 @router.post("/login", response_model=DeliveryBoyTokenOut)

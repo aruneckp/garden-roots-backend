@@ -287,9 +287,10 @@ async def get_delivery_fee_async(postal_code: str) -> dict:
     Uses OneMap for address resolution and Google Distance Matrix for fee calculation.
     Falls back gracefully on any failure.
     """
-    far_fee  = float(settings.delivery_far_fee)
-    near_fee = float(settings.delivery_near_fee)
-    fallback = {"fee": far_fee, "area": "", "street": "", "zone": "Standard Area"}
+    far_fee        = float(settings.delivery_far_fee)
+    near_fee       = float(settings.delivery_near_fee)
+    free_threshold = float(settings.delivery_free_threshold)
+    fallback = {"fee": far_fee, "area": "", "street": "", "zone": "Standard Area", "free_threshold": free_threshold}
 
     # Step 1: Resolve address via OneMap (no API key required)
     location = await _get_location_async(postal_code)
@@ -302,12 +303,12 @@ async def get_delivery_fee_async(postal_code: str) -> dict:
 
     # Step 2a: Flat fee for special zones — skip Distance Matrix entirely
     if area and area.lower() in _get_flat_fee_areas():
-        return {"fee": near_fee, "area": area, "street": street, "zone": "Near Area"}
+        return {"fee": near_fee, "area": area, "street": street, "zone": "Near Area", "free_threshold": free_threshold}
 
     # Step 2b: Distance-based fee for all other areas
     if not settings.google_maps_api_key:
         logger.warning("GOOGLE_MAPS_API_KEY not set — returning default far fee")
-        return {**fallback, "area": area, "street": street, "note": "Distance API not configured"}
+        return {**fallback, "area": area, "street": street, "free_threshold": free_threshold, "note": "Distance API not configured"}
 
     # Resolve area name via Geocoding if still unknown
     if not area:
@@ -328,10 +329,11 @@ async def get_delivery_fee_async(postal_code: str) -> dict:
     fee    = _fee_from_meters(distance_meters)
     is_near = float(fee) == near_fee
     return {
-        "fee":    float(fee),
-        "area":   area,
-        "street": street,
-        "zone":   "Near Area" if is_near else "Standard Area",
+        "fee":            float(fee),
+        "area":           area,
+        "street":         street,
+        "zone":           "Near Area" if is_near else "Standard Area",
+        "free_threshold": free_threshold,
     }
 
 

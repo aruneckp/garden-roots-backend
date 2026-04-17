@@ -931,6 +931,9 @@ def bulk_update_order_status(
     db: Session = Depends(get_db),
 ):
     """Bulk-update order_status for a list of orders and write an audit log entry per order."""
+    # Google OAuth admins have an id from the users table, not admin_users — don't FK it
+    admin_user_id = current_admin.id if isinstance(current_admin, AdminUser) else None
+
     updated = []
     for order_id in payload.order_ids:
         order = db.query(Order).filter(Order.id == order_id).first()
@@ -940,7 +943,7 @@ def bulk_update_order_status(
             order_id=order_id,
             old_status=order.order_status,
             new_status=payload.new_status,
-            changed_by=current_admin.id,
+            changed_by=admin_user_id,
             note=payload.note,
         )
         db.add(log)

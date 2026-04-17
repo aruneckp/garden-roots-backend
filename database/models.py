@@ -37,6 +37,7 @@ class ProductVariant(Base):
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
     size_name  = Column(String(100), nullable=False)
     unit       = Column(String(50), nullable=False)
+    box_weight = Column(Numeric(8, 2))   # weight per box in kg
     created_at = Column(DateTime(timezone=True), default=_now)
 
     product    = relationship("Product", back_populates="variants")

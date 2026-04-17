@@ -21,6 +21,7 @@ from middleware.error_handler import (  # noqa: E402
     validation_exception_handler,
     unhandled_exception_handler,
 )
+from middleware.audit_middleware import AuditUserMiddleware  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -67,6 +68,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(AuditUserMiddleware)
 
 # ---------------------------------------------------------------------------
 # Exception handlers

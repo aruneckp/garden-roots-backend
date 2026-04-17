@@ -125,9 +125,20 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def get_db():
-    """FastAPI dependency — yields a database session."""
+    """FastAPI dependency — yields a database session.
+
+    Sets Oracle CLIENT_IDENTIFIER to the logged-in app user so that
+    audit triggers can record who made each change.
+    """
+    from utils.audit import audit_user  # local import avoids circular deps at module load
+
     db = SessionLocal()
     try:
+        user = audit_user.get()
+        # Switch to application schema and set CLIENT_IDENTIFIER for audit triggers
+        if _schema:
+            db.execute(text(f"ALTER SESSION SET CURRENT_SCHEMA = {_schema}"))
+        db.execute(text("BEGIN DBMS_SESSION.SET_IDENTIFIER(:u); END;"), {"u": user[:64]})
         yield db
     except Exception as exc:
         logger.error("Database error: %s", exc)

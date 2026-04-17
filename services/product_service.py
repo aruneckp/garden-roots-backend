@@ -38,6 +38,7 @@ def _build_variant_out(variant: ProductVariant) -> VariantOut:
         unit=variant.unit,
         price=price,
         currency=currency,
+        box_weight=float(variant.box_weight) if variant.box_weight is not None else None,
         stock=_build_stock_out(variant.stock),
     )
 

@@ -796,6 +796,56 @@ def list_all_orders(
     return result
 
 
+@router.get("/orders/abandoned-checkouts", response_model=list[dict])
+def get_abandoned_checkouts(
+    minutes: int = Query(15, ge=1, le=1440),
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Return orders where payment was initiated (paynow) but never completed,
+    created more than `minutes` minutes ago.
+    Excludes pay_later orders (those are legitimate admin-booked orders).
+    """
+    from datetime import datetime, timezone, timedelta
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+    orders = (
+        db.query(Order)
+        .filter(
+            Order.payment_method == "paynow",
+            Order.payment_status == "pending",
+            Order.created_at <= cutoff,
+        )
+        .order_by(Order.created_at.desc())
+        .all()
+    )
+    result = []
+    for o in orders:
+        items = [
+            {
+                "variant": (
+                    f"{i.product_variant.product.name} – {i.product_variant.size_name}"
+                    if i.product_variant and i.product_variant.product else "—"
+                ),
+                "qty": i.quantity,
+                "unit_price": str(i.unit_price),
+            }
+            for i in o.order_items
+        ]
+        result.append({
+            "id": o.id,
+            "order_ref": o.order_ref,
+            "customer_name": o.customer_name,
+            "customer_email": o.customer_email,
+            "customer_phone": o.customer_phone,
+            "delivery_type": o.delivery_type,
+            "total_price": str(o.total_price),
+            "items": items,
+            "created_at": o.created_at.isoformat() if o.created_at else None,
+        })
+    return result
+
+
 @router.get("/orders/null-shipment-count")
 def get_null_shipment_order_count(
     current_admin: AdminUser = Depends(get_current_admin),

@@ -31,6 +31,7 @@ class VariantOut(BaseModel):
     unit: str
     price: Optional[Decimal] = None
     currency: str = "USD"
+    box_weight: Optional[Decimal] = None
     stock: Optional[StockOut] = None
 
 

@@ -1,9 +1,9 @@
-from typing import Optional
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from database.connection import get_db
-from database.models import AdminUser, DeliveryBoy, Order, OrderStatusLog, User
+from database.models import AdminUser, DeliveryBoy, Order, OrderItem, OrderStatusLog, Pricing, ProductVariant, User
 from utils.auth import get_current_admin, verify_password, create_access_token, hash_password
 from schemas.admin import (
     AdminLoginIn, AdminTokenOut,
@@ -916,6 +916,95 @@ def collect_pay_later_payment(
         "order_ref": order.order_ref,
         "payment_status": order.payment_status,
         "message": "Payment marked as collected",
+    }
+
+
+from pydantic import BaseModel as _BM
+from datetime import date as _date
+from sqlalchemy import or_ as _or
+
+class _ItemEdit(_BM):
+    product_variant_id: int
+    quantity: int
+
+class _OrderEditIn(_BM):
+    customer_name:    Optional[str] = None
+    customer_email:   Optional[str] = None
+    customer_phone:   Optional[str] = None
+    delivery_address: Optional[str] = None
+    customer_notes:   Optional[str] = None
+    order_status:     Optional[str] = None
+    items:            Optional[List[_ItemEdit]] = None
+
+
+@router.patch("/orders/{order_id}")
+def admin_update_order(
+    order_id: int,
+    body: _OrderEditIn,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Admin: update order fields and/or replace order items."""
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    # ── update simple fields ──
+    if body.customer_name    is not None: order.customer_name    = body.customer_name
+    if body.customer_email   is not None: order.customer_email   = body.customer_email
+    if body.customer_phone   is not None: order.customer_phone   = body.customer_phone
+    if body.delivery_address is not None: order.delivery_address = body.delivery_address
+    if body.customer_notes   is not None: order.customer_notes   = body.customer_notes
+    if body.order_status     is not None: order.order_status     = body.order_status
+
+    # ── replace items ──
+    if body.items is not None:
+        db.query(OrderItem).filter(OrderItem.order_id == order_id).delete()
+        db.flush()
+
+        today = _date.today()
+        subtotal = 0.0
+        for it in body.items:
+            if it.quantity <= 0:
+                continue
+            variant = db.query(ProductVariant).filter(ProductVariant.id == it.product_variant_id).first()
+            if not variant:
+                continue
+            # resolve active price
+            pricing = (
+                db.query(Pricing)
+                .filter(
+                    Pricing.product_variant_id == variant.id,
+                    _or(Pricing.valid_from == None, Pricing.valid_from <= today),
+                    _or(Pricing.valid_to == None,   Pricing.valid_to   >= today),
+                )
+                .first()
+            )
+            if not pricing:
+                pricing = db.query(Pricing).filter(Pricing.product_variant_id == variant.id).first()
+            unit_price = float(pricing.base_price) if pricing else 0.0
+            line_subtotal = unit_price * it.quantity
+            subtotal += line_subtotal
+            db.add(OrderItem(
+                order_id=order_id,
+                product_variant_id=it.product_variant_id,
+                quantity=it.quantity,
+                unit_price=unit_price,
+                subtotal=line_subtotal,
+            ))
+
+        order.subtotal    = subtotal
+        order.total_price = subtotal + float(order.delivery_fee or 0)
+
+    db.commit()
+    db.refresh(order)
+    return {
+        "success": True,
+        "order_id": order.id,
+        "order_ref": order.order_ref,
+        "order_status": order.order_status,
+        "subtotal": float(order.subtotal),
+        "total_price": float(order.total_price),
     }
 
 

@@ -549,6 +549,15 @@ def update_pickup_location(db: Session, location_id: int, location_data):
     return location
 
 
+def delete_pickup_location(db: Session, location_id: int):
+    """Delete a pickup location by ID."""
+    from database.models import PickupLocation
+
+    location = get_pickup_location(db, location_id)
+    db.delete(location)
+    db.commit()
+
+
 def get_location_occupancy(db: Session, location_id: int):
     """Get location occupancy and capacity information."""
     from database.models import PickupLocation, ShipmentBox

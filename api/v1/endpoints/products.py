@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel
 from datetime import date
 
@@ -33,6 +33,62 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
 def get_variants(product_id: int, db: Session = Depends(get_db)):
     """Return all variants for a product."""
     data = product_service.get_product_variants(db, product_id)
+    return APIResponse(data=data)
+
+
+class ProductCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    origin: Optional[str] = None
+    tag: Optional[str] = None
+    season_start: Optional[str] = None
+    season_end: Optional[str] = None
+    size_name: str = "Standard"
+    unit: str = "box"
+    price: float
+    currency: str = "SGD"
+
+
+@router.post("", response_model=APIResponse[ProductOut], status_code=201)
+def create_product(
+    body: ProductCreate,
+    db: Session = Depends(get_db),
+    _admin=Depends(get_current_admin),
+):
+    """Create a new product with one variant and an initial price."""
+    existing = db.query(Product).filter(Product.name == body.name).first()
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Product '{body.name}' already exists")
+
+    product = Product(
+        name=body.name,
+        description=body.description,
+        origin=body.origin,
+        tag=body.tag,
+        season_start=body.season_start,
+        season_end=body.season_end,
+        is_active=1,
+    )
+    db.add(product)
+    db.flush()
+
+    variant = ProductVariant(
+        product_id=product.id,
+        size_name=body.size_name,
+        unit=body.unit,
+    )
+    db.add(variant)
+    db.flush()
+
+    pricing = Pricing(
+        product_variant_id=variant.id,
+        base_price=body.price,
+        currency=body.currency,
+    )
+    db.add(pricing)
+    db.commit()
+
+    data = product_service.get_product_by_id(db, product.id)
     return APIResponse(data=data)
 
 

@@ -27,7 +27,7 @@ from services.admin_service import (
     log_delivery, get_delivery_logs,
     generate_shipment_summary, get_shipment_summary, get_dashboard_summary,
     # New functions
-    create_pickup_location, get_all_pickup_locations, get_pickup_location, update_pickup_location, get_location_occupancy,
+    create_pickup_location, get_all_pickup_locations, get_pickup_location, update_pickup_location, delete_pickup_location, get_location_occupancy,
     create_prebooking, get_prebookings_for_shipment, update_prebooking_status,
     record_payment, get_payment_summary, mark_payment_paid,
     receive_shipment, add_box_entry, update_box_delivery_status, get_reception_status,
@@ -428,6 +428,16 @@ def update_location(
 ):
     """Update pickup location."""
     return update_pickup_location(db, location_id, payload)
+
+
+@router.delete("/pickup-locations/{location_id}", status_code=204)
+def delete_location(
+    location_id: int,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Delete a pickup location."""
+    delete_pickup_location(db, location_id)
 
 
 @router.get("/pickup-locations/{location_id}/occupancy", response_model=PickupLocationOccupancy)

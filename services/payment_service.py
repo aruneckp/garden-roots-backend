@@ -13,7 +13,7 @@ import hashlib
 import hmac as hmac_lib
 import logging
 
-import requests
+import httpx
 from fastapi import HTTPException
 
 from config.settings import settings
@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 
 _SANDBOX_BASE = "https://api.sandbox.hit-pay.com/v1"
 _PROD_BASE    = "https://api.hit-pay.com/v1"
+
+_TIMEOUT   = 30   # seconds per attempt
+_MAX_TRIES = 2    # retry once on timeout
 
 # HitPay status → internal status
 _STATUS_MAP = {
@@ -48,11 +51,45 @@ def _assert_configured():
         )
 
 
+async def _post(url: str, **kwargs) -> httpx.Response:
+    """POST with one automatic retry on timeout."""
+    for attempt in range(_MAX_TRIES):
+        try:
+            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                return await client.post(url, **kwargs)
+        except httpx.TimeoutException:
+            if attempt < _MAX_TRIES - 1:
+                logger.warning("HitPay POST timed out (attempt %d), retrying…", attempt + 1)
+            else:
+                logger.error("HitPay POST timed out after %d attempts: %s", _MAX_TRIES, url)
+                raise HTTPException(
+                    status_code=504,
+                    detail="Payment gateway timed out. Please try again.",
+                )
+
+
+async def _get(url: str, **kwargs) -> httpx.Response:
+    """GET with one automatic retry on timeout."""
+    for attempt in range(_MAX_TRIES):
+        try:
+            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                return await client.get(url, **kwargs)
+        except httpx.TimeoutException:
+            if attempt < _MAX_TRIES - 1:
+                logger.warning("HitPay GET timed out (attempt %d), retrying…", attempt + 1)
+            else:
+                logger.error("HitPay GET timed out after %d attempts: %s", _MAX_TRIES, url)
+                raise HTTPException(
+                    status_code=504,
+                    detail="Payment gateway timed out. Please try again.",
+                )
+
+
 class PaymentService:
     """HitPay PayNow payment processing service."""
 
     @staticmethod
-    def create_payment_request(
+    async def create_payment_request(
         amount: float,
         order_id: int,
         customer_name: str = "",
@@ -84,14 +121,13 @@ class PaymentService:
         if customer_phone:
             payload["phone"] = customer_phone
 
-        resp = requests.post(
+        resp = await _post(
             f"{_api_base()}/payment-requests",
             json=payload,
             headers=_headers(),
-            timeout=15,
         )
 
-        if not resp.ok:
+        if not resp.is_success:
             logger.error("HitPay create error: %s %s", resp.status_code, resp.text)
             raise HTTPException(status_code=502, detail="Payment gateway error. Please try again.")
 
@@ -110,7 +146,7 @@ class PaymentService:
         }
 
     @staticmethod
-    def create_payment_link(
+    async def create_payment_link(
         amount: float = None,
         order_id: int = None,
         customer_name: str = "",
@@ -120,7 +156,6 @@ class PaymentService:
     ) -> dict:
         """
         Create a HitPay payment link that shows ALL available payment methods.
-        This is better than QR-only as it gives customers choice.
         Returns a shareable payment link URL.
         """
         _assert_configured()
@@ -130,16 +165,13 @@ class PaymentService:
             "reference_number": f"GR-ORDER-{order_id}" if order_id else "GR-LINK",
             "redirect_url": f"{settings.frontend_url}/",
         }
-        
-        # Set amount only if specified and not allowing any amount
+
         if amount and not allow_any_amount:
             payload["amount"] = f"{amount:.2f}"
-        
-        # Webhook for payment confirmation
+
         if not settings.hitpay_is_sandbox:
             payload["webhook"] = f"{settings.app_url}/api/v1/payments/hitpay-webhook"
-        
-        # Customer information
+
         if customer_name:
             payload["name"] = customer_name
         if customer_email:
@@ -147,15 +179,13 @@ class PaymentService:
         if customer_phone:
             payload["phone"] = customer_phone
 
-        # Create payment link instead of payment request
-        resp = requests.post(
+        resp = await _post(
             f"{_api_base()}/payment-requests",
             json=payload,
             headers=_headers(),
-            timeout=15,
         )
 
-        if not resp.ok:
+        if not resp.is_success:
             logger.error("HitPay payment link create error: %s %s", resp.status_code, resp.text)
             raise HTTPException(status_code=502, detail="Payment gateway error. Please try again.")
 
@@ -175,19 +205,18 @@ class PaymentService:
         }
 
     @staticmethod
-    def get_payment_status(payment_request_id: str) -> dict:
+    async def get_payment_status(payment_request_id: str) -> dict:
         """Retrieve current status of a HitPay payment request."""
         _assert_configured()
 
-        resp = requests.get(
+        resp = await _get(
             f"{_api_base()}/payment-requests/{payment_request_id}",
             headers=_headers(),
-            timeout=15,
         )
 
         if resp.status_code == 404:
             raise HTTPException(status_code=404, detail="Payment not found.")
-        if not resp.ok:
+        if not resp.is_success:
             logger.error("HitPay status error: %s %s", resp.status_code, resp.text)
             raise HTTPException(status_code=502, detail="Payment gateway error.")
 

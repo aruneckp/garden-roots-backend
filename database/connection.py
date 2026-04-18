@@ -6,6 +6,7 @@ import tempfile
 from typing import Optional
 
 import oracledb
+from fastapi import HTTPException as FastAPIHTTPException
 from sqlalchemy import create_engine, MetaData, text
 from sqlalchemy.pool import QueuePool
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
@@ -140,6 +141,13 @@ def get_db():
             db.execute(text(f"ALTER SESSION SET CURRENT_SCHEMA = {_schema}"))
         db.execute(text("BEGIN DBMS_SESSION.SET_IDENTIFIER(:u); END;"), {"u": user[:64]})
         yield db
+    except FastAPIHTTPException:
+        db.rollback()
+        raise
+    except LookupError:
+        logger.warning("Audit context missing — request likely unauthenticated")
+        db.rollback()
+        raise
     except Exception as exc:
         logger.error("Database error: %s", exc)
         db.rollback()

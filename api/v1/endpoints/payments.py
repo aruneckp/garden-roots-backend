@@ -21,7 +21,7 @@ router = APIRouter(prefix="/payments", tags=["payments"])
 
 
 @router.post("/create-payment", response_model=PaymentCreateResponse)
-def create_payment(request: PaymentCreateRequest):
+async def create_payment(request: PaymentCreateRequest):
     """
     Create a HitPay PayNow payment request (QR code only).
     Returns the HitPay hosted checkout URL — frontend redirects customer there.
@@ -30,7 +30,7 @@ def create_payment(request: PaymentCreateRequest):
         raise HTTPException(status_code=400, detail="Amount must be greater than 0")
 
     try:
-        result = PaymentService.create_payment_request(
+        result = await PaymentService.create_payment_request(
             amount=request.amount,
             order_id=request.order_id,
             customer_name=request.customer_name or "",
@@ -46,14 +46,14 @@ def create_payment(request: PaymentCreateRequest):
 
 
 @router.post("/create-payment-link", response_model=PaymentLinkResponse)
-def create_payment_link(request: PaymentLinkRequest):
+async def create_payment_link(request: PaymentLinkRequest):
     """
     Create a HitPay payment link that shows ALL available payment methods.
     This is better than QR-only as it gives customers payment choice.
     Returns a shareable payment link URL.
     """
     try:
-        result = PaymentService.create_payment_link(
+        result = await PaymentService.create_payment_link(
             amount=request.amount,
             order_id=request.order_id,
             customer_name=request.customer_name or "",
@@ -70,10 +70,10 @@ def create_payment_link(request: PaymentLinkRequest):
 
 
 @router.get("/status/{payment_request_id}", response_model=PaymentStatusResponse)
-def get_payment_status(payment_request_id: str):
+async def get_payment_status(payment_request_id: str):
     """Poll HitPay for the current status of a payment request."""
     try:
-        info = PaymentService.get_payment_status(payment_request_id)
+        info = await PaymentService.get_payment_status(payment_request_id)
         return PaymentStatusResponse(
             status=info["status"],
             payment_intent_id=payment_request_id,
@@ -88,7 +88,7 @@ def get_payment_status(payment_request_id: str):
 
 
 @router.put("/{order_id}/payment-confirm", response_model=PaymentConfirmResponse)
-def confirm_payment(
+async def confirm_payment(
     order_id: int,
     payment_intent_id: str,
     db: Session = Depends(get_db),
@@ -100,7 +100,7 @@ def confirm_payment(
     """
     try:
         # Verify with HitPay that the payment succeeded
-        info = PaymentService.get_payment_status(payment_intent_id)
+        info = await PaymentService.get_payment_status(payment_intent_id)
 
         # Verify ownership: reference_number must match this order_id
         expected_ref = f"GR-ORDER-{order_id}"

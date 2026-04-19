@@ -25,7 +25,7 @@ CREATE TABLE order_status_logs (
     CONSTRAINT fk_osl_order          FOREIGN KEY (order_id)
         REFERENCES orders (id) ON DELETE CASCADE,
     CONSTRAINT fk_osl_admin          FOREIGN KEY (changed_by)
-        REFERENCES admin_users (id) ON DELETE SET NULL
+        REFERENCES admin_users (id)
 );
 
 CREATE INDEX idx_order_status_logs_order_id ON order_status_logs (order_id);

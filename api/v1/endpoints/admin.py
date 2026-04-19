@@ -1017,6 +1017,7 @@ class _OrderEditIn(_BM):
     delivery_address:   Optional[str] = None
     customer_notes:     Optional[str] = None
     order_status:       Optional[str] = None
+    payment_status:     Optional[str] = None   # 'pending' | 'succeeded' | 'failed' | 'cancelled'
     delivery_type:      Optional[str] = None   # 'delivery' | 'pickup'
     pickup_location_id: Optional[int] = None
     items:              Optional[List[_ItemEdit]] = None
@@ -1041,6 +1042,7 @@ def admin_update_order(
     if body.delivery_address   is not None: order.delivery_address   = body.delivery_address
     if body.customer_notes     is not None: order.customer_notes     = body.customer_notes
     if body.order_status       is not None: order.order_status       = body.order_status
+    if body.payment_status     is not None: order.payment_status     = body.payment_status
     if body.delivery_type      is not None: order.delivery_type      = body.delivery_type
     if body.pickup_location_id is not None: order.pickup_location_id = body.pickup_location_id
 

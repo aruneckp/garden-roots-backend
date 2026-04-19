@@ -24,7 +24,7 @@ CREATE TABLE users (
 -- 2. Add user_id foreign key column to orders (nullable — existing orders have no user)
 ALTER TABLE orders ADD user_id NUMBER;
 ALTER TABLE orders ADD CONSTRAINT fk_orders_user
-    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL;
+    FOREIGN KEY (user_id) REFERENCES users (id);
 CREATE INDEX idx_orders_user_id ON orders (user_id);
 
 COMMIT;

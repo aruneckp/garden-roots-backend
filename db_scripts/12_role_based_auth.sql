@@ -17,7 +17,7 @@ ALTER TABLE users ADD role VARCHAR2(20) DEFAULT 'customer' NOT NULL;
 ALTER TABLE users ADD delivery_boy_id NUMBER;
 
 ALTER TABLE users ADD CONSTRAINT fk_users_delivery_boy
-    FOREIGN KEY (delivery_boy_id) REFERENCES delivery_boys (id) ON DELETE SET NULL;
+    FOREIGN KEY (delivery_boy_id) REFERENCES delivery_boys (id);
 
 CREATE INDEX idx_users_role           ON users (role);
 CREATE INDEX idx_users_delivery_boy   ON users (delivery_boy_id);

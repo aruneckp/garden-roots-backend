@@ -4,7 +4,7 @@
 ALTER TABLE orders ADD shipment_id NUMBER;
 
 ALTER TABLE orders ADD CONSTRAINT fk_orders_shipment
-    FOREIGN KEY (shipment_id) REFERENCES shipments (id) ON DELETE SET NULL;
+    FOREIGN KEY (shipment_id) REFERENCES shipments (id);
 
 CREATE INDEX idx_orders_shipment_id ON orders (shipment_id);
 

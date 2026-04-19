@@ -12,8 +12,7 @@ ALTER TABLE orders ADD CONSTRAINT chk_orders_delivery_type
 -- 2. FK to the pickup location chosen when delivery_type = 'pickup'
 ALTER TABLE orders ADD pickup_location_id NUMBER;
 ALTER TABLE orders ADD CONSTRAINT fk_orders_pickup_location
-    FOREIGN KEY (pickup_location_id) REFERENCES pickup_locations (id)
-    ON DELETE SET NULL;
+    FOREIGN KEY (pickup_location_id) REFERENCES pickup_locations (id);
 
 -- 3. Optional notes / feedback the customer can leave per order
 ALTER TABLE orders ADD customer_notes VARCHAR2(1000);

@@ -363,7 +363,7 @@ CREATE TABLE payment_records (
     CONSTRAINT fk_pr_box          FOREIGN KEY (shipment_box_id)
         REFERENCES shipment_boxes (id) ON DELETE CASCADE,
     CONSTRAINT fk_pr_prebooking   FOREIGN KEY (prebooking_id)
-        REFERENCES prebookings (id) ON DELETE SET NULL,
+        REFERENCES prebookings (id),
     CONSTRAINT chk_pr_amount      CHECK (amount >= 0)
 );
 
@@ -383,7 +383,7 @@ CREATE TABLE box_entry_logs (
     CONSTRAINT fk_bel_box        FOREIGN KEY (shipment_box_id)
         REFERENCES shipment_boxes (id) ON DELETE CASCADE,
     CONSTRAINT fk_bel_admin      FOREIGN KEY (changed_by)
-        REFERENCES admin_users (id) ON DELETE SET NULL
+        REFERENCES admin_users (id)
 );
 
 --PROMPT ----------------------------------------------------------

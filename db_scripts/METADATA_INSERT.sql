@@ -18,10 +18,10 @@ COMMIT;
 -- NOTE: product_id references the new IDs generated above
 -- Run: SELECT id, name FROM products ORDER BY name; to confirm IDs before inserting
 -- ------------------------------------------------------------
-INSERT INTO product_variants (product_id, size_name, unit) VALUES ((SELECT id FROM products WHERE name = 'Alphonso'), 'Box of 6', 'box');
-INSERT INTO product_variants (product_id, size_name, unit) VALUES ((SELECT id FROM products WHERE name = 'Mallika'), 'Box of 6', 'box');
-INSERT INTO product_variants (product_id, size_name, unit) VALUES ((SELECT id FROM products WHERE name = 'Banganapalli'), 'Box of 6', 'box');
-INSERT INTO product_variants (product_id, size_name, unit) VALUES ((SELECT id FROM products WHERE name = 'Imam Pasand'), 'Box of 6', 'box');
+INSERT INTO product_variants (product_id, size_name, unit) VALUES ((SELECT id FROM products WHERE name = 'Alphonso'), 'Standard', 'box');
+INSERT INTO product_variants (product_id, size_name, unit) VALUES ((SELECT id FROM products WHERE name = 'Mallika'), 'Standard', 'box');
+INSERT INTO product_variants (product_id, size_name, unit) VALUES ((SELECT id FROM products WHERE name = 'Banganapalli'), 'Standard', 'box');
+INSERT INTO product_variants (product_id, size_name, unit) VALUES ((SELECT id FROM products WHERE name = 'Imam Pasand'), 'Standard', 'box');
 COMMIT;
 
 -- ------------------------------------------------------------

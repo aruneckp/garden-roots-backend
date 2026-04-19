@@ -30,7 +30,7 @@ ALTER TABLE orders ADD delivery_code   VARCHAR2(50);
 ALTER TABLE orders ADD assigned_at     TIMESTAMP WITH TIME ZONE;
 
 ALTER TABLE orders ADD CONSTRAINT fk_orders_delivery_boy
-    FOREIGN KEY (delivery_boy_id) REFERENCES delivery_boys (id) ON DELETE SET NULL;
+    FOREIGN KEY (delivery_boy_id) REFERENCES delivery_boys (id);
 
 CREATE INDEX idx_orders_delivery_boy_id ON orders (delivery_boy_id);
 

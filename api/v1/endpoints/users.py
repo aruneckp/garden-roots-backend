@@ -7,7 +7,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from database.connection import get_db
 from database.models import User, Order
@@ -106,6 +106,10 @@ def get_my_orders(
     """Return all orders placed by the currently logged-in user, newest first."""
     orders = (
         db.query(Order)
+        .options(
+            selectinload(Order.order_items),
+            selectinload(Order.pickup_location),
+        )
         .filter(Order.user_id == current_user.id)
         .order_by(Order.created_at.desc())
         .all()

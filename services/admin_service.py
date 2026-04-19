@@ -505,10 +505,12 @@ def create_pickup_location(db: Session, location_data):
         name=location_data.name,
         address=location_data.address,
         phone=location_data.phone,
+        whatsapp_phone=getattr(location_data, 'whatsapp_phone', None),
         email=location_data.email,
         manager_name=location_data.manager_name,
         location_type=location_data.location_type,
         capacity=location_data.capacity,
+        collection_hours=location_data.collection_hours,
         notes=location_data.notes,
     )
     db.add(location)

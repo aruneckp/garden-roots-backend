@@ -50,6 +50,7 @@ class PickupLocationPublicOut(BaseModel):
     address: str
     phone: Optional[str] = None
     whatsapp_phone: Optional[str] = None
+    collection_hours: Optional[str] = None
 
 
 class OrderOut(BaseModel):

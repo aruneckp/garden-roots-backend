@@ -221,10 +221,12 @@ class PickupLocationIn(BaseModel):
     name: str
     address: str
     phone: Optional[str] = None
+    whatsapp_phone: Optional[str] = None
     email: Optional[str] = None
     manager_name: Optional[str] = None
     location_type: str = "retail"  # retail, warehouse, franchise, store
     capacity: int = 100
+    collection_hours: Optional[str] = None
     notes: Optional[str] = None
 
 
@@ -235,11 +237,13 @@ class PickupLocationOut(BaseModel):
     name: str
     address: str
     phone: Optional[str] = None
+    whatsapp_phone: Optional[str] = None
     email: Optional[str] = None
     manager_name: Optional[str] = None
     location_type: str
     capacity: int
     current_boxes: int
+    collection_hours: Optional[str] = None
     is_active: int
     notes: Optional[str] = None
     created_at: datetime
@@ -250,9 +254,11 @@ class PickupLocationUpdate(BaseModel):
     name: Optional[str] = None
     address: Optional[str] = None
     phone: Optional[str] = None
+    whatsapp_phone: Optional[str] = None
     email: Optional[str] = None
     manager_name: Optional[str] = None
     capacity: Optional[int] = None
+    collection_hours: Optional[str] = None
     notes: Optional[str] = None
     is_active: Optional[int] = None
 

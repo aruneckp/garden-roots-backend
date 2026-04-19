@@ -1,6 +1,6 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload, joinedload
 
 from database.connection import get_db
 from database.models import AdminUser, DeliveryBoy, Order, OrderItem, OrderStatusLog, Pricing, ProductVariant, User
@@ -298,7 +298,13 @@ def get_shipment_orders(
 ):
     """List all orders linked to a shipment with optional filters."""
     from datetime import datetime, timezone
-    query = db.query(Order).filter(Order.shipment_id == shipment_id)
+    query = db.query(Order).options(
+        selectinload(Order.order_items)
+            .joinedload(OrderItem.product_variant)
+            .joinedload(ProductVariant.product),
+        joinedload(Order.pickup_location),
+        joinedload(Order.delivery_boy),
+    ).filter(Order.shipment_id == shipment_id)
     if order_status:
         query = query.filter(Order.order_status == order_status)
     if payment_status:
@@ -321,6 +327,7 @@ def get_shipment_orders(
     for o in orders:
         items = [
             {
+                "product_variant_id": i.product_variant_id,
                 "variant": (
                     f"{i.product_variant.product.name} – {i.product_variant.size_name}"
                     if i.product_variant and i.product_variant.product else "—"
@@ -626,6 +633,7 @@ def get_unassigned_orders(
     """Get paid home-delivery orders not yet assigned to a delivery boy."""
     query = (
         db.query(Order)
+        .options(selectinload(Order.order_items))
         .filter(
             Order.payment_status == "succeeded",
             Order.delivery_type == "delivery",
@@ -666,6 +674,10 @@ def get_assigned_orders(
     """Get home-delivery orders that have been assigned to a delivery boy."""
     query = (
         db.query(Order)
+        .options(
+            selectinload(Order.order_items),
+            joinedload(Order.delivery_boy),
+        )
         .filter(
             Order.delivery_type == "delivery",
             Order.delivery_boy_id.isnot(None),
@@ -726,7 +738,13 @@ def list_all_orders(
     delivery_boy_id, assigned (yes/no), payment_method, date_from, date_to.
     """
     from datetime import datetime, timezone
-    query = db.query(Order)
+    query = db.query(Order).options(
+        selectinload(Order.order_items)
+            .joinedload(OrderItem.product_variant)
+            .joinedload(ProductVariant.product),
+        joinedload(Order.pickup_location),
+        joinedload(Order.delivery_boy),
+    )
 
     if delivery_type:
         query = query.filter(Order.delivery_type == delivery_type)
@@ -765,6 +783,7 @@ def list_all_orders(
     for o in orders:
         items = [
             {
+                "product_variant_id": i.product_variant_id,
                 "variant": (
                     f"{i.product_variant.product.name} – {i.product_variant.size_name}"
                     if i.product_variant and i.product_variant.product else "—"
@@ -833,6 +852,7 @@ def get_abandoned_checkouts(
     for o in orders:
         items = [
             {
+                "product_variant_id": i.product_variant_id,
                 "variant": (
                     f"{i.product_variant.product.name} – {i.product_variant.size_name}"
                     if i.product_variant and i.product_variant.product else "—"
@@ -987,17 +1007,19 @@ from datetime import date as _date
 from sqlalchemy import or_ as _or
 
 class _ItemEdit(_BM):
-    product_variant_id: int
+    product_variant_id: Optional[int] = None
     quantity: int
 
 class _OrderEditIn(_BM):
-    customer_name:    Optional[str] = None
-    customer_email:   Optional[str] = None
-    customer_phone:   Optional[str] = None
-    delivery_address: Optional[str] = None
-    customer_notes:   Optional[str] = None
-    order_status:     Optional[str] = None
-    items:            Optional[List[_ItemEdit]] = None
+    customer_name:      Optional[str] = None
+    customer_email:     Optional[str] = None
+    customer_phone:     Optional[str] = None
+    delivery_address:   Optional[str] = None
+    customer_notes:     Optional[str] = None
+    order_status:       Optional[str] = None
+    delivery_type:      Optional[str] = None   # 'delivery' | 'pickup'
+    pickup_location_id: Optional[int] = None
+    items:              Optional[List[_ItemEdit]] = None
 
 
 @router.patch("/orders/{order_id}")
@@ -1013,12 +1035,14 @@ def admin_update_order(
         raise HTTPException(status_code=404, detail="Order not found")
 
     # ── update simple fields ──
-    if body.customer_name    is not None: order.customer_name    = body.customer_name
-    if body.customer_email   is not None: order.customer_email   = body.customer_email
-    if body.customer_phone   is not None: order.customer_phone   = body.customer_phone
-    if body.delivery_address is not None: order.delivery_address = body.delivery_address
-    if body.customer_notes   is not None: order.customer_notes   = body.customer_notes
-    if body.order_status     is not None: order.order_status     = body.order_status
+    if body.customer_name      is not None: order.customer_name      = body.customer_name
+    if body.customer_email     is not None: order.customer_email     = body.customer_email
+    if body.customer_phone     is not None: order.customer_phone     = body.customer_phone
+    if body.delivery_address   is not None: order.delivery_address   = body.delivery_address
+    if body.customer_notes     is not None: order.customer_notes     = body.customer_notes
+    if body.order_status       is not None: order.order_status       = body.order_status
+    if body.delivery_type      is not None: order.delivery_type      = body.delivery_type
+    if body.pickup_location_id is not None: order.pickup_location_id = body.pickup_location_id
 
     # ── replace items ──
     if body.items is not None:
@@ -1069,6 +1093,78 @@ def admin_update_order(
         "subtotal": float(order.subtotal),
         "total_price": float(order.total_price),
     }
+
+
+@router.get("/orders/{order_id}/history", response_model=list[dict])
+def get_order_history(
+    order_id: int,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Return a chronological audit trail for a single order."""
+    from sqlalchemy import text as _text
+    import json as _json
+
+    events = []
+
+    # ── Audit log (Oracle trigger-based) ──
+    try:
+        rows = db.execute(
+            _text("""
+                SELECT operation, changed_by, changed_at, old_values, new_values
+                FROM audit_log
+                WHERE table_name = 'ORDERS' AND record_id = :oid
+                ORDER BY changed_at ASC
+            """),
+            {"oid": order_id},
+        ).fetchall()
+        for r in rows:
+            old_v = r.old_values
+            new_v = r.new_values
+            if hasattr(old_v, "read"): old_v = old_v.read()
+            if hasattr(new_v, "read"): new_v = new_v.read()
+            try:
+                old_v = _json.loads(old_v) if old_v else {}
+            except Exception:
+                old_v = {"raw": str(old_v)}
+            try:
+                new_v = _json.loads(new_v) if new_v else {}
+            except Exception:
+                new_v = {"raw": str(new_v)}
+            ts = r.changed_at
+            events.append({
+                "source":     "audit",
+                "operation":  r.operation,
+                "changed_by": r.changed_by or "system",
+                "changed_at": ts.isoformat() if ts else None,
+                "old_values": old_v,
+                "new_values": new_v,
+            })
+    except Exception:
+        pass  # audit_log may not exist in all environments
+
+    # ── OrderStatusLog (application-level) ──
+    status_logs = (
+        db.query(OrderStatusLog)
+        .filter(OrderStatusLog.order_id == order_id)
+        .order_by(OrderStatusLog.changed_at.asc())
+        .all()
+    )
+    for sl in status_logs:
+        admin_name = sl.admin_user.username if sl.admin_user else "admin"
+        ts = sl.changed_at
+        events.append({
+            "source":     "status_log",
+            "operation":  "STATUS_CHANGE",
+            "changed_by": admin_name,
+            "changed_at": ts.isoformat() if ts else None,
+            "old_values": {"order_status": sl.old_status},
+            "new_values": {"order_status": sl.new_status},
+            "note":       sl.note or "",
+        })
+
+    events.sort(key=lambda x: x["changed_at"] or "")
+    return events
 
 
 @router.post("/delivery-boys/{delivery_boy_id}/assign")

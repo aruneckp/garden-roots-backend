@@ -316,10 +316,11 @@ class PickupLocation(Base):
     location_type   = Column(String(50), default="retail")
     capacity        = Column(Integer)
     current_boxes   = Column(Integer, default=0)
-    is_active       = Column(Integer, default=1, index=True)
-    notes           = Column(String(1000))
-    created_at      = Column(DateTime(timezone=True), default=_now)
-    updated_at      = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+    collection_hours  = Column(String(100))
+    is_active         = Column(Integer, default=1, index=True)
+    notes             = Column(String(1000))
+    created_at        = Column(DateTime(timezone=True), default=_now)
+    updated_at        = Column(DateTime(timezone=True), default=_now, onupdate=_now)
 
     boxes           = relationship("ShipmentBox", back_populates="location", cascade="all, delete-orphan")
 

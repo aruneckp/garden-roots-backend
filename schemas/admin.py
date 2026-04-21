@@ -470,3 +470,21 @@ class OrderBulkShipmentIn(BaseModel):
     order_ids: Optional[List[int]] = None    # specific orders; None = all with null shipment_id
     only_null: bool = True                   # when order_ids is None, skip orders already linked
 
+
+class DeliveryTagIn(BaseModel):
+    name:  str
+    color: Optional[str] = "#6b7280"
+
+
+class DeliveryTagOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id:         int
+    name:       str
+    color:      str
+    created_at: datetime
+
+
+class OrderBulkTagIn(BaseModel):
+    order_ids: List[int]
+    tag_id:    Optional[int] = None   # None to clear tag
+

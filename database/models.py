@@ -117,6 +117,7 @@ class Order(Base):
     booked_by_admin_name = Column(String(150), nullable=True)  # Display name of admin for follow-up
     promo_code          = Column(String(50), nullable=True)    # Applied promo code (if any)
     discount_amount     = Column(Numeric(10, 2), default=0)    # Amount discounted by promo
+    delivery_tag_id     = Column(Integer, ForeignKey("delivery_tags.id"), nullable=True, index=True)
     created_at          = Column(DateTime(timezone=True), default=_now)
     updated_at          = Column(DateTime(timezone=True), default=_now, onupdate=_now)
 
@@ -125,6 +126,7 @@ class Order(Base):
     pickup_location = relationship("PickupLocation", foreign_keys=[pickup_location_id])
     shipment        = relationship("Shipment", foreign_keys=[shipment_id])
     delivery_boy    = relationship("DeliveryBoy", back_populates="orders")
+    delivery_tag    = relationship("DeliveryTag", back_populates="orders")
 
 
 class OrderItem(Base):
@@ -402,6 +404,22 @@ class DeliveryBoy(Base):
     updated_at    = Column(DateTime(timezone=True), default=_now, onupdate=_now)
 
     orders        = relationship("Order", back_populates="delivery_boy")
+
+
+# ============================================================================
+# DELIVERY TAGS
+# ============================================================================
+
+class DeliveryTag(Base):
+    """Labels that can be attached to orders for delivery grouping/routing."""
+    __tablename__ = "delivery_tags"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    name       = Column(String(100), unique=True, nullable=False, index=True)
+    color      = Column(String(20), default="#6b7280")   # hex colour for the badge
+    created_at = Column(DateTime(timezone=True), default=_now)
+
+    orders     = relationship("Order", back_populates="delivery_tag")
 
 
 # ============================================================================

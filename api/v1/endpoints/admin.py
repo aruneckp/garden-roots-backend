@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, selectinload, joinedload
 
 from database.connection import get_db
-from database.models import AdminUser, DeliveryBoy, Order, OrderItem, OrderStatusLog, Pricing, ProductVariant, User
+from database.models import AdminUser, DeliveryBoy, DeliveryTag, Order, OrderItem, OrderStatusLog, Pricing, ProductVariant, User
 from utils.auth import get_current_admin, verify_password, create_access_token, hash_password
 from schemas.admin import (
     AdminLoginIn, AdminTokenOut,
@@ -19,6 +19,7 @@ from schemas.admin import (
     ShipmentBoxEnhancedOut, ShipmentBoxEntryIn,
     DeliveryBoyIn, DeliveryBoyOut, AssignDeliveryIn,
     OrderBulkStatusIn, OrderShipmentUpdate, OrderBulkShipmentIn,
+    DeliveryTagIn, DeliveryTagOut, OrderBulkTagIn,
 )
 from services.admin_service import (
     create_spoc_contact, get_spoc_contact, get_all_spoc_contacts,
@@ -818,6 +819,9 @@ def list_all_orders(
             "shipment_id": o.shipment_id,
             "booked_by_admin_id": o.booked_by_admin_id,
             "booked_by_admin_name": o.booked_by_admin_name,
+            "delivery_tag_id": o.delivery_tag_id,
+            "delivery_tag_name": o.delivery_tag.name if o.delivery_tag else None,
+            "delivery_tag_color": o.delivery_tag.color if o.delivery_tag else None,
             "items": items,
             "items_count": len(items),
             "created_at": o.created_at.isoformat() if o.created_at else None,
@@ -1213,3 +1217,68 @@ def list_customer_users(
     """Return all registered customer users (admin only)."""
     users = db.query(User).order_by(User.name).all()
     return [{"id": u.id, "name": u.name, "email": u.email} for u in users]
+
+
+# ============================================================================
+# DELIVERY TAGS
+# ============================================================================
+
+@router.get("/delivery-tags", response_model=List[DeliveryTagOut])
+def list_delivery_tags(
+    db: Session = Depends(get_db),
+    _admin=Depends(get_current_admin),
+):
+    return db.query(DeliveryTag).order_by(DeliveryTag.name).all()
+
+
+@router.post("/delivery-tags", response_model=DeliveryTagOut, status_code=201)
+def create_delivery_tag(
+    payload: DeliveryTagIn,
+    db: Session = Depends(get_db),
+    _admin=Depends(get_current_admin),
+):
+    existing = db.query(DeliveryTag).filter(DeliveryTag.name == payload.name).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="A tag with this name already exists")
+    tag = DeliveryTag(name=payload.name, color=payload.color or "#6b7280")
+    db.add(tag)
+    db.commit()
+    db.refresh(tag)
+    return tag
+
+
+@router.delete("/delivery-tags/{tag_id}", status_code=204)
+def delete_delivery_tag(
+    tag_id: int,
+    db: Session = Depends(get_db),
+    _admin=Depends(get_current_admin),
+):
+    tag = db.query(DeliveryTag).filter(DeliveryTag.id == tag_id).first()
+    if not tag:
+        raise HTTPException(status_code=404, detail="Tag not found")
+    # Clear the tag from any assigned orders first
+    db.query(Order).filter(Order.delivery_tag_id == tag_id).update({"delivery_tag_id": None})
+    db.delete(tag)
+    db.commit()
+
+
+@router.put("/orders/bulk-tag")
+def bulk_assign_delivery_tag(
+    payload: OrderBulkTagIn,
+    db: Session = Depends(get_db),
+    _admin=Depends(get_current_admin),
+):
+    """Assign (or clear) a delivery tag on a list of orders."""
+    if payload.tag_id is not None:
+        tag = db.query(DeliveryTag).filter(DeliveryTag.id == payload.tag_id).first()
+        if not tag:
+            raise HTTPException(status_code=404, detail="Tag not found")
+    updated = []
+    for order_id in payload.order_ids:
+        order = db.query(Order).filter(Order.id == order_id).first()
+        if not order:
+            continue
+        order.delivery_tag_id = payload.tag_id
+        updated.append(order_id)
+    db.commit()
+    return {"updated": updated, "tag_id": payload.tag_id, "count": len(updated)}

@@ -349,6 +349,7 @@ def get_shipment_orders(
             "delivery_address": o.delivery_address,
             "pickup_location_id": o.pickup_location_id,
             "pickup_location_name": o.pickup_location.name if o.pickup_location else None,
+            "pickup_location_address": o.pickup_location.address if o.pickup_location else None,
             "order_status": o.order_status,
             "payment_status": o.payment_status,
             "payment_method": o.payment_method,
@@ -730,6 +731,7 @@ def list_all_orders(
     payment_method: Optional[str] = Query(None),
     date_from: Optional[str] = Query(None),  # ISO date string YYYY-MM-DD
     date_to: Optional[str] = Query(None),
+    tag_id: Optional[str] = Query(None),     # numeric id or "untagged"
     current_admin: AdminUser = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
@@ -763,6 +765,13 @@ def list_all_orders(
         query = query.filter(Order.delivery_boy_id.is_(None))
     if payment_method:
         query = query.filter(Order.payment_method == payment_method)
+    if tag_id == "untagged":
+        query = query.filter(Order.delivery_tag_id.is_(None))
+    elif tag_id:
+        try:
+            query = query.filter(Order.delivery_tag_id == int(tag_id))
+        except ValueError:
+            pass
     if date_from:
         try:
             dt_from = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
@@ -805,6 +814,7 @@ def list_all_orders(
             "delivery_address": o.delivery_address,
             "pickup_location_id": o.pickup_location_id,
             "pickup_location_name": o.pickup_location.name if o.pickup_location else None,
+            "pickup_location_address": o.pickup_location.address if o.pickup_location else None,
             "order_status": o.order_status,
             "payment_status": o.payment_status,
             "payment_method": o.payment_method,

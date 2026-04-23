@@ -416,7 +416,9 @@ class DeliveryTag(Base):
 
     id         = Column(Integer, primary_key=True, index=True)
     name       = Column(String(100), unique=True, nullable=False, index=True)
-    color      = Column(String(20), default="#6b7280")   # hex colour for the badge
+    color      = Column(String(20), default="#6b7280")
+    price      = Column(Numeric(10, 2), nullable=True)
+    is_active  = Column(Integer, default=1, nullable=False)  # 1=active, 0=inactive
     created_at = Column(DateTime(timezone=True), default=_now)
 
     orders     = relationship("Order", back_populates="delivery_tag")

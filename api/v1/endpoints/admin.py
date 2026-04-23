@@ -19,7 +19,7 @@ from schemas.admin import (
     ShipmentBoxEnhancedOut, ShipmentBoxEntryIn,
     DeliveryBoyIn, DeliveryBoyOut, AssignDeliveryIn,
     OrderBulkStatusIn, OrderShipmentUpdate, OrderBulkShipmentIn,
-    DeliveryTagIn, DeliveryTagOut, OrderBulkTagIn,
+    DeliveryTagIn, DeliveryTagOut, DeliveryTagUpdate, OrderBulkTagIn,
 )
 from services.admin_service import (
     create_spoc_contact, get_spoc_contact, get_all_spoc_contacts,
@@ -1250,8 +1250,32 @@ def create_delivery_tag(
     existing = db.query(DeliveryTag).filter(DeliveryTag.name == payload.name).first()
     if existing:
         raise HTTPException(status_code=409, detail="A tag with this name already exists")
-    tag = DeliveryTag(name=payload.name, color=payload.color or "#6b7280")
+    tag = DeliveryTag(
+        name=payload.name,
+        color=payload.color or "#6b7280",
+        price=payload.price,
+        is_active=payload.is_active if payload.is_active is not None else 1,
+    )
     db.add(tag)
+    db.commit()
+    db.refresh(tag)
+    return tag
+
+
+@router.patch("/delivery-tags/{tag_id}", response_model=DeliveryTagOut)
+def update_delivery_tag(
+    tag_id: int,
+    payload: DeliveryTagUpdate,
+    db: Session = Depends(get_db),
+    _admin=Depends(get_current_admin),
+):
+    tag = db.query(DeliveryTag).filter(DeliveryTag.id == tag_id).first()
+    if not tag:
+        raise HTTPException(status_code=404, detail="Tag not found")
+    if payload.price is not None:
+        tag.price = payload.price
+    if payload.is_active is not None:
+        tag.is_active = payload.is_active
     db.commit()
     db.refresh(tag)
     return tag

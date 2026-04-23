@@ -472,8 +472,15 @@ class OrderBulkShipmentIn(BaseModel):
 
 
 class DeliveryTagIn(BaseModel):
-    name:  str
-    color: Optional[str] = "#6b7280"
+    name:      str
+    color:     Optional[str] = "#6b7280"
+    price:     Optional[float] = None
+    is_active: Optional[int] = 1
+
+
+class DeliveryTagUpdate(BaseModel):
+    price:     Optional[float] = None
+    is_active: Optional[int] = None
 
 
 class DeliveryTagOut(BaseModel):
@@ -481,6 +488,8 @@ class DeliveryTagOut(BaseModel):
     id:         int
     name:       str
     color:      str
+    price:      Optional[float] = None
+    is_active:  int
     created_at: datetime
 
 

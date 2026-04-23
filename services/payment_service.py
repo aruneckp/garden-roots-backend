@@ -262,4 +262,12 @@ class PaymentService:
             hashlib.sha256,
         ).hexdigest()
 
-        return hmac_lib.compare_digest(expected, received_hmac)
+        match = hmac_lib.compare_digest(expected, received_hmac)
+        if not match:
+            logger.warning(
+                "HitPay HMAC mismatch — salt_last4=%s expected_last8=%s received_last8=%s",
+                settings.hitpay_salt[-4:] if len(settings.hitpay_salt) >= 4 else "???",
+                expected[-8:],
+                received_hmac[-8:],
+            )
+        return match

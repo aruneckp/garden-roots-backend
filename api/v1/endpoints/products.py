@@ -92,6 +92,27 @@ def create_product(
     return APIResponse(data=data)
 
 
+class DisplayOrderItem(BaseModel):
+    id: int
+    display_order: int
+
+
+@router.patch("/reorder", response_model=APIResponse[List[ProductOut]])
+def reorder_products(
+    body: List[DisplayOrderItem],
+    db: Session = Depends(get_db),
+    _admin=Depends(get_current_admin),
+):
+    """Bulk-update display_order for all products. Accepts [{id, display_order}, ...]."""
+    for item in body:
+        product = db.query(Product).filter(Product.id == item.id).first()
+        if product:
+            product.display_order = item.display_order
+    db.commit()
+    data = product_service.get_all_products(db)
+    return APIResponse(data=data)
+
+
 class PriceUpdate(BaseModel):
     price: float
 

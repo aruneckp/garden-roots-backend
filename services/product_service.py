@@ -53,6 +53,7 @@ def _build_product_out(product: Product) -> ProductOut:
         season_end=product.season_end,
         tag=product.tag,
         is_active=product.is_active if product.is_active is not None else 1,
+        display_order=product.display_order if product.display_order is not None else 0,
         variants=[_build_variant_out(v) for v in product.variants],
     )
 
@@ -73,7 +74,7 @@ def get_all_products(db: Session) -> List[ProductOut]:
     products = (
         db.query(Product)
         .options(*_eager_load_options())
-        .order_by(Product.id)
+        .order_by(Product.display_order, Product.id)
         .all()
     )
     return [_build_product_out(p) for p in products]

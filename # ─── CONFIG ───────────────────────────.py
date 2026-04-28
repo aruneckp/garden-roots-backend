@@ -1,0 +1,5 @@
+# ─── CONFIG ───────────────────────────────────────────────
+ACCESS_TOKEN    = "EAAVZAOBMhZCN8BROR1cacGDdZB7uic5mrUyrVb54dKXWdsWIlgCdTtLMrR6gtzk4jN7FrXcIsDTAVnfWFFhFXciw3Xb14HzZCbdQ1ZAZCvAxEjnlpSIKuG49i8I504zbXA7XNIR9YSKVempCdGe6SyeJpSrNnsZC5IgRam08m5QopCg8N8Pl4M1hkHhgBMh7soWXEKOjnLHkkTqB0RcM4EwwmkuxRmCMDxgyiC6kBnnTZCzvKO8Xz0QNpSiGjVErrzrkY4lkF6mFGqWwA6fSOBA5ZBzpu"
+PHONE_NUMBER_ID = "1129084516948141"
+API_VERSION     = "v19.0"
+BASE_URL        = f"https://graph.facebook.com/{API_VERSION}/{PHONE_NUMBER_ID}/messages"

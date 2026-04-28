@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, selectinload, joinedload
 
 from database.connection import get_db
-from database.models import AdminUser, DeliveryBoy, DeliveryTag, Order, OrderItem, OrderStatusLog, Pricing, ProductVariant, User
+from database.models import AdminUser, DeliveryBoy, DeliveryTag, Order, OrderActionLog, OrderActionType, OrderItem, OrderStatusLog, Pricing, ProductVariant, User
 from utils.auth import get_current_admin, verify_password, create_access_token, hash_password
 from schemas.admin import (
     AdminLoginIn, AdminTokenOut,
@@ -21,6 +21,7 @@ from schemas.admin import (
     OrderBulkStatusIn, OrderShipmentUpdate, OrderBulkShipmentIn,
     DeliveryTagIn, DeliveryTagOut, DeliveryTagUpdate, OrderBulkTagIn,
 )
+from services.order_action_service import log_order_action as _log_order_action
 from services.admin_service import (
     create_spoc_contact, get_spoc_contact, get_all_spoc_contacts,
     create_shipment, get_shipment, get_shipment_by_ref, get_all_shipments, update_shipment,
@@ -62,6 +63,8 @@ def login(payload: AdminLoginIn, db: Session = Depends(get_db)):
         user_id=user.id,
         username=user.username,
         role=user.role,
+        full_name=user.full_name,
+        email=user.email,
     )
 
 
@@ -832,6 +835,11 @@ def list_all_orders(
             "delivery_tag_id": o.delivery_tag_id,
             "delivery_tag_name": o.delivery_tag.name if o.delivery_tag else None,
             "delivery_tag_color": o.delivery_tag.color if o.delivery_tag else None,
+            "actual_price": float(o.actual_price) if o.actual_price is not None else None,
+            "payment_comments": o.payment_comments,
+            "payment_received_by": o.payment_received_by,
+            "payment_updated_by": o.payment_updated_by,
+            "payment_collection_status": o.payment_collection_status or "to_be_received",
             "items": items,
             "items_count": len(items),
             "created_at": o.created_at.isoformat() if o.created_at else None,
@@ -981,6 +989,9 @@ def bulk_update_order_status(
             note=payload.note,
         )
         db.add(log)
+        _log_order_action(db, order_id, "STATUS_UPDATE", current_admin,
+                          details={"old": order.order_status, "new": payload.new_status},
+                          note=payload.note)
         order.order_status = payload.new_status
         updated.append(order_id)
     db.commit()
@@ -1007,6 +1018,8 @@ def collect_pay_later_payment(
     if order.payment_status == "succeeded":
         raise HTTPException(status_code=409, detail="Payment already marked as collected")
     order.payment_status = "succeeded"
+    _log_order_action(db, order_id, "PAYMENT_COLLECTED", current_admin,
+                      details={"payment_method": order.payment_method})
     db.commit()
     return {
         "order_id": order.id,
@@ -1019,7 +1032,6 @@ def collect_pay_later_payment(
 from pydantic import BaseModel as _BM
 from datetime import date as _date
 from sqlalchemy import or_ as _or
-
 class _ItemEdit(_BM):
     product_variant_id: Optional[int] = None
     quantity: int
@@ -1049,6 +1061,34 @@ def admin_update_order(
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
+    # ── snapshot before update ──
+    _pre_customer = {
+        "customer_name":  order.customer_name,
+        "customer_email": order.customer_email,
+        "customer_phone": order.customer_phone,
+    }
+    _pre_delivery = {
+        "delivery_address":   order.delivery_address,
+        "delivery_type":      order.delivery_type,
+        "pickup_location_id": order.pickup_location_id,
+    }
+    _pre_order_status   = order.order_status
+    _pre_payment_status = order.payment_status
+    _pre_notes          = order.customer_notes
+
+    # snapshot items with names BEFORE deletion (lazy-load while session is clean)
+    _pre_items_map: dict = {}
+    if body.items is not None:
+        for it in order.order_items:
+            pv = it.product_variant
+            if pv:
+                prod_name = pv.product.name if pv.product else f"Variant #{it.product_variant_id}"
+                size = pv.size_name
+                label = prod_name if not size or size.lower() == "standard" else f"{prod_name} ({size})"
+            else:
+                label = f"Variant #{it.product_variant_id}"
+            _pre_items_map[it.product_variant_id] = {"name": label, "qty": it.quantity}
+
     # ── update simple fields ──
     if body.customer_name      is not None: order.customer_name      = body.customer_name
     if body.customer_email     is not None: order.customer_email     = body.customer_email
@@ -1061,6 +1101,7 @@ def admin_update_order(
     if body.pickup_location_id is not None: order.pickup_location_id = body.pickup_location_id
 
     # ── replace items ──
+    _post_items_map: dict = {}
     if body.items is not None:
         db.query(OrderItem).filter(OrderItem.order_id == order_id).delete()
         db.flush()
@@ -1073,6 +1114,11 @@ def admin_update_order(
             variant = db.query(ProductVariant).filter(ProductVariant.id == it.product_variant_id).first()
             if not variant:
                 continue
+            # build post-snapshot entry while variant is already in scope
+            pv_prod_name = variant.product.name if variant.product else f"Variant #{it.product_variant_id}"
+            pv_size = variant.size_name
+            pv_label = pv_prod_name if not pv_size or pv_size.lower() == "standard" else f"{pv_prod_name} ({pv_size})"
+            _post_items_map[it.product_variant_id] = {"name": pv_label, "qty": it.quantity}
             # resolve active price
             pricing = (
                 db.query(Pricing)
@@ -1099,6 +1145,50 @@ def admin_update_order(
         order.subtotal    = subtotal
         order.total_price = subtotal + float(order.delivery_fee or 0)
 
+    # ── detect changes and write action logs ──
+    _changed_customer = {
+        k: {"old": _pre_customer[k], "new": getattr(order, k)}
+        for k in _pre_customer
+        if getattr(order, k) != _pre_customer[k]
+    }
+    if _changed_customer:
+        _log_order_action(db, order_id, "CUSTOMER_INFO_UPDATE", current_admin, details=_changed_customer)
+
+    _changed_delivery = {
+        k: {"old": _pre_delivery[k], "new": getattr(order, k)}
+        for k in _pre_delivery
+        if getattr(order, k) != _pre_delivery[k]
+    }
+    if _changed_delivery:
+        _log_order_action(db, order_id, "DELIVERY_UPDATE", current_admin, details=_changed_delivery)
+
+    if order.order_status != _pre_order_status:
+        _log_order_action(db, order_id, "STATUS_UPDATE", current_admin,
+                          details={"old": _pre_order_status, "new": order.order_status})
+
+    if order.payment_status != _pre_payment_status:
+        _log_order_action(db, order_id, "PAYMENT_UPDATE", current_admin,
+                          details={"old": _pre_payment_status, "new": order.payment_status})
+
+    if order.customer_notes != _pre_notes and body.customer_notes is not None:
+        _log_order_action(db, order_id, "NOTES_UPDATED", current_admin,
+                          details={"old": _pre_notes, "new": order.customer_notes})
+
+    if body.items is not None:
+        _added, _removed, _changed = [], [], []
+        for vid in set(_pre_items_map) | set(_post_items_map):
+            pre  = _pre_items_map.get(vid)
+            post = _post_items_map.get(vid)
+            if pre and not post:
+                _removed.append(pre["name"])
+            elif not pre and post:
+                _added.append(f"{post['name']} ×{post['qty']}")
+            elif pre and post and pre["qty"] != post["qty"]:
+                _changed.append({"name": pre["name"], "old": pre["qty"], "new": post["qty"]})
+        _items_diff = {k: v for k, v in {"added": _added, "removed": _removed, "changed": _changed}.items() if v}
+        if _items_diff:
+            _log_order_action(db, order_id, "ITEMS_UPDATED", current_admin, details=_items_diff)
+
     db.commit()
     db.refresh(order)
     return {
@@ -1108,6 +1198,95 @@ def admin_update_order(
         "order_status": order.order_status,
         "subtotal": float(order.subtotal),
         "total_price": float(order.total_price),
+    }
+
+
+class _PaymentDetailIn(_BM):
+    actual_price:              Optional[float] = None
+    payment_comments:          Optional[str]   = None
+    payment_received_by:       Optional[str]   = None
+    payment_collection_status: Optional[str]   = None  # 'to_be_received' | 'received'
+
+
+@router.patch("/orders/{order_id}/payment-details")
+def update_order_payment_details(
+    order_id: int,
+    body: _PaymentDetailIn,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Save payment detail fields (actual price, comments, received-by, collection status)."""
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    _pre = {
+        "actual_price":              float(order.actual_price) if order.actual_price is not None else None,
+        "payment_comments":          order.payment_comments,
+        "payment_received_by":       order.payment_received_by,
+        "payment_collection_status": order.payment_collection_status,
+    }
+
+    if body.actual_price is not None:
+        order.actual_price = body.actual_price
+    if body.payment_comments is not None:
+        order.payment_comments = body.payment_comments
+
+    # Determine the effective received_by after this update
+    effective_received_by = body.payment_received_by if body.payment_received_by is not None else order.payment_received_by
+    if body.payment_received_by is not None:
+        order.payment_received_by = body.payment_received_by
+
+    if body.payment_collection_status is not None:
+        if body.payment_collection_status == "received" and effective_received_by:
+            # Direct identifiers from admin_users (username, full_name, email)
+            caller_identifiers = {
+                v for v in [
+                    getattr(current_admin, "username", None),
+                    getattr(current_admin, "full_name", None),
+                    getattr(current_admin, "email", None),
+                ] if v
+            }
+            is_self = effective_received_by in caller_identifiers
+            # Cross-table check: find the recipient in users table and compare by email
+            if not is_self and getattr(current_admin, "email", None):
+                target_user = (
+                    db.query(User)
+                    .filter(User.name == effective_received_by, User.role == "admin")
+                    .first()
+                )
+                if target_user and target_user.email == current_admin.email:
+                    is_self = True
+            if not is_self:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only the assigned recipient can mark payment as 'Received'.",
+                )
+        order.payment_collection_status = body.payment_collection_status
+
+    order.payment_updated_by = (
+        getattr(current_admin, "username", None)
+        or getattr(current_admin, "name", None)
+        or "admin"
+    )
+
+    _diff = {
+        k: {"old": _pre[k], "new": getattr(order, k)}
+        for k in _pre
+        if str(getattr(order, k) or "") != str(_pre[k] or "")
+    }
+    if _diff:
+        _log_order_action(db, order_id, "PAYMENT_UPDATE", current_admin, details=_diff)
+
+    db.commit()
+    return {
+        "success":                  True,
+        "order_id":                 order.id,
+        "actual_price":             float(order.actual_price) if order.actual_price is not None else None,
+        "payment_comments":         order.payment_comments,
+        "payment_received_by":      order.payment_received_by,
+        "payment_updated_by":       order.payment_updated_by,
+        "payment_collection_status": order.payment_collection_status or "to_be_received",
     }
 
 
@@ -1183,6 +1362,75 @@ def get_order_history(
     return events
 
 
+@router.get("/order-action-types", response_model=list[dict])
+def list_order_action_types(
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Return all active order action type definitions (config table)."""
+    types = (
+        db.query(OrderActionType)
+        .filter(OrderActionType.is_active == 1)
+        .order_by(OrderActionType.sort_order)
+        .all()
+    )
+    return [
+        {
+            "id":          t.id,
+            "code":        t.code,
+            "label":       t.label,
+            "description": t.description,
+            "color":       t.color,
+            "icon":        t.icon,
+        }
+        for t in types
+    ]
+
+
+@router.get("/orders/{order_id}/action-logs", response_model=list[dict])
+def get_order_action_logs(
+    order_id: int,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Return the chronological action log for a single order."""
+    logs = (
+        db.query(OrderActionLog)
+        .filter(OrderActionLog.order_id == order_id)
+        .order_by(OrderActionLog.created_at.asc())
+        .all()
+    )
+    result = []
+    for log in logs:
+        details_parsed = None
+        if log.details:
+            try:
+                raw = log.details
+                if hasattr(raw, "read"):
+                    raw = raw.read()
+                details_parsed = _json.loads(raw) if raw else None
+            except Exception:
+                details_parsed = {"raw": str(log.details)}
+
+        atype = log.action_type
+        ts = log.created_at
+        result.append({
+            "id":           log.id,
+            "order_id":     log.order_id,
+            "action_type":  {
+                "code":  atype.code,
+                "label": atype.label,
+                "color": atype.color,
+                "icon":  atype.icon,
+            } if atype else None,
+            "performed_by": log.performed_by or "system",
+            "details":      details_parsed,
+            "note":         log.note,
+            "created_at":   ts.isoformat() if ts else None,
+        })
+    return result
+
+
 @router.post("/delivery-boys/{delivery_boy_id}/assign")
 def assign_orders_to_delivery_boy(
     delivery_boy_id: int,
@@ -1227,6 +1475,49 @@ def list_customer_users(
     """Return all registered customer users (admin only)."""
     users = db.query(User).order_by(User.name).all()
     return [{"id": u.id, "name": u.name, "email": u.email} for u in users]
+
+
+@router.get("/admin-users-list", tags=["admin"])
+def list_admin_users(
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Return all admin-role users from the users table — used for the payment 'received by' dropdown."""
+    users = (
+        db.query(User)
+        .filter(User.role == 'admin')
+        .order_by(User.name)
+        .all()
+    )
+    my_emails = {v for v in [current_admin.email] if v}
+
+    result = []
+    me_found = False
+    for u in users:
+        is_me = bool(u.email and u.email in my_emails)
+        if is_me:
+            me_found = True
+        result.append({
+            "id": u.id,
+            "name": u.name or u.email,
+            "username": u.name or u.email,
+            "email": u.email,
+            "is_me": is_me,
+        })
+
+    # If the logged-in admin is not found in the users table via email,
+    # inject their own entry so they can always select themselves.
+    if not me_found:
+        my_display_name = current_admin.full_name or current_admin.username
+        result.insert(0, {
+            "id": f"admin_{current_admin.id}",
+            "name": my_display_name,
+            "username": my_display_name,
+            "email": current_admin.email,
+            "is_me": True,
+        })
+
+    return result
 
 
 # ============================================================================

@@ -19,6 +19,8 @@ class AdminTokenOut(BaseModel):
     user_id: int
     username: str
     role: str
+    full_name: Optional[str] = None
+    email: Optional[str] = None
 
 
 # ============================================================================

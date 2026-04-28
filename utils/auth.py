@@ -144,6 +144,8 @@ async def get_current_admin(
             def __init__(self, u):
                 self.id        = u.id
                 self.username  = u.email
+                self.full_name = getattr(u, 'name', None) or u.email
+                self.email     = u.email
                 self.role      = "admin"
                 self.is_active = 1
 
@@ -185,7 +187,8 @@ async def get_optional_admin(
                 def __init__(self, u):
                     self.id        = u.id
                     self.username  = u.email
-                    self.full_name = u.name if hasattr(u, 'name') else u.email
+                    self.full_name = getattr(u, 'name', None) or u.email
+                    self.email     = u.email
                     self.role      = "admin"
                     self.is_active = 1
 

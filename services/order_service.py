@@ -14,6 +14,7 @@ from schemas.order import OrderIn, OrderOut
 from services.stock_service import reserve_stock, deduct_stock, release_stock
 from services.delivery_fee_service import get_delivery_fee_sync
 from services.promo_service import validate_promo, record_promo_usage
+from services.order_action_service import log_order_action
 
 
 def _generate_order_ref() -> str:
@@ -125,6 +126,15 @@ def create_order(db: Session, payload: OrderIn, booked_by_admin=None) -> OrderOu
     )
     db.add(order)
     db.flush()  # assigns order.id
+
+    log_order_action(
+        db, order.id, "ORDER_CREATED", actor=booked_by_admin,
+        details={
+            "payment_method": order.payment_method,
+            "delivery_type":  order.delivery_type,
+            "total_price":    str(order.total_price),
+        },
+    )
 
     for variant, qty, price, item_sub in line_items:
         db.add(OrderItem(

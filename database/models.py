@@ -118,6 +118,12 @@ class Order(Base):
     promo_code          = Column(String(50), nullable=True)    # Applied promo code (if any)
     discount_amount     = Column(Numeric(10, 2), default=0)    # Amount discounted by promo
     delivery_tag_id     = Column(Integer, ForeignKey("delivery_tags.id"), nullable=True, index=True)
+    # Payment detail fields (admin-editable)
+    actual_price              = Column(Numeric(10, 2), nullable=True)
+    payment_comments          = Column(Text, nullable=True)
+    payment_received_by       = Column(String(150), nullable=True)
+    payment_updated_by        = Column(String(150), nullable=True)
+    payment_collection_status = Column(String(50), default='to_be_received')
     created_at          = Column(DateTime(timezone=True), default=_now)
     updated_at          = Column(DateTime(timezone=True), default=_now, onupdate=_now)
 
@@ -422,6 +428,50 @@ class DeliveryTag(Base):
     created_at = Column(DateTime(timezone=True), default=_now)
 
     orders     = relationship("Order", back_populates="delivery_tag")
+
+
+# ============================================================================
+# ORDER ACTION TYPES & LOGS
+# ============================================================================
+
+class OrderActionType(Base):
+    """Config/lookup table for the types of actions that can be performed on an order."""
+    __tablename__ = "order_action_types"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    code        = Column(String(50), unique=True, nullable=False, index=True)
+    label       = Column(String(100), nullable=False)
+    description = Column(String(500))
+    color       = Column(String(20), default="#6b7280")
+    icon        = Column(String(50))
+    is_active   = Column(Integer, default=1, nullable=False)
+    sort_order  = Column(Integer, default=0)
+    # created_at intentionally omitted: seeded rows store a named timezone that
+    # python-oracledb thin mode cannot read (DPY-3022). Run migration 26 to fix.
+
+    logs        = relationship("OrderActionLog", back_populates="action_type")
+
+
+class OrderActionLog(Base):
+    """One row per user/admin action performed on an order."""
+    __tablename__ = "order_action_logs"
+
+    id                    = Column(Integer, primary_key=True, index=True)
+    order_id              = Column(Integer, ForeignKey("orders.id"), nullable=False, index=True)
+    action_type_id        = Column(Integer, ForeignKey("order_action_types.id"), nullable=False, index=True)
+    performed_by          = Column(String(150))
+    performed_by_admin_id = Column(Integer, nullable=True)
+    details               = Column(Text)   # JSON string
+    note                  = Column(String(1000))
+    created_at            = Column(DateTime(timezone=True), default=_now)
+
+    order       = relationship("Order")
+    action_type = relationship("OrderActionType", back_populates="logs")
+    admin_user  = relationship(
+        "AdminUser",
+        primaryjoin="foreign(OrderActionLog.performed_by_admin_id) == AdminUser.id",
+        uselist=False,
+    )
 
 
 # ============================================================================

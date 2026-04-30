@@ -669,7 +669,7 @@ def update_prebooking_status(db: Session, prebooking_id: int, status_data):
 # Payment Management
 # ============================================================================
 
-def record_payment(db: Session, payment_data):
+def record_payment(db: Session, payment_data, received_by: str = None):
     """Record a payment for a box."""
     from database.models import PaymentRecord, ShipmentBox, Shipment
 
@@ -686,6 +686,7 @@ def record_payment(db: Session, payment_data):
         payment_method=payment_data.payment_method,
         transaction_ref=payment_data.transaction_ref,
         notes=payment_data.notes,
+        received_by=received_by,
     )
 
     db.add(payment)

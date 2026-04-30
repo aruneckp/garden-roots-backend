@@ -372,6 +372,7 @@ class PaymentRecord(Base):
     payment_method  = Column(String(50))
     transaction_ref = Column(String(150))
     notes           = Column(String(500))
+    received_by     = Column(String(150))
     created_at      = Column(DateTime(timezone=True), default=_now)
     updated_at      = Column(DateTime(timezone=True), default=_now, onupdate=_now)
 

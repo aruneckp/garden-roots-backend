@@ -340,6 +340,7 @@ class PaymentRecordOut(BaseModel):
     payment_method: Optional[str] = None
     transaction_ref: Optional[str] = None
     notes: Optional[str] = None
+    received_by: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

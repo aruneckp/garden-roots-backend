@@ -510,7 +510,8 @@ def record_payment_endpoint(
     db: Session = Depends(get_db)
 ):
     """Record a payment for a box."""
-    return record_payment(db, payload)
+    received_by = current_admin.full_name or current_admin.username
+    return record_payment(db, payload, received_by=received_by)
 
 
 @router.get("/shipments/{shipment_id}/payments", response_model=PaymentSummary)
@@ -530,6 +531,46 @@ def get_pending_payments(
 ):
     """Get all pending payments across shipments."""
     return get_pending_payments_across_shipments(db)
+
+
+@router.get("/payments/dashboard", response_model=dict)
+def get_payments_dashboard(
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Aggregated payment dashboard: status breakdown and owner breakdown from orders."""
+    from sqlalchemy import func
+
+    status_rows = (
+        db.query(Order.payment_status, func.count(Order.id).label("count"))
+        .group_by(Order.payment_status)
+        .all()
+    )
+    payment_status_data = [
+        {"status": row.payment_status or "unknown", "count": row.count}
+        for row in status_rows
+    ]
+
+    from database.models import PaymentRecord
+    owner_rows = (
+        db.query(
+            PaymentRecord.received_by,
+            func.count(PaymentRecord.id).label("count"),
+        )
+        .filter(PaymentRecord.received_by.isnot(None), PaymentRecord.received_by != "")
+        .group_by(PaymentRecord.received_by)
+        .order_by(func.count(PaymentRecord.id).desc())
+        .all()
+    )
+    payment_owners_data = [
+        {"owner": row.received_by, "count": row.count}
+        for row in owner_rows
+    ]
+
+    return {
+        "payment_status": payment_status_data,
+        "payment_owners": payment_owners_data,
+    }
 
 
 @router.put("/payments/{payment_id}/mark-paid", response_model=PaymentRecordOut)

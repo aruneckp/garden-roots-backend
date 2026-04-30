@@ -45,6 +45,8 @@ class ProductOut(BaseModel):
     season_start: Optional[str] = None
     season_end: Optional[str] = None
     tag: Optional[str] = None
+    image_url: Optional[str] = None
+    emoji: Optional[str] = None
     is_active: int = 1
     display_order: int = 0
     variants: List[VariantOut] = []

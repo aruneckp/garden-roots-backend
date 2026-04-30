@@ -22,6 +22,8 @@ class Product(Base):
     season_start= Column(String(10))
     season_end  = Column(String(10))
     tag         = Column(String(50))
+    image_url   = Column(String(500))
+    emoji       = Column(String(20))
     is_active     = Column(Integer, default=1, nullable=False)
     display_order = Column(Integer, default=0, nullable=False)
     created_at  = Column(DateTime(timezone=True), default=_now)

@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from datetime import date
 
 from database.connection import get_db
-from database.models import Product, ProductVariant, Pricing
+from database.models import Product, ProductVariant, Pricing, StockInventory
 from schemas.product import ProductOut, VariantOut
 from schemas.common import APIResponse
 from services import product_service
@@ -43,10 +43,13 @@ class ProductCreate(BaseModel):
     tag: Optional[str] = None
     season_start: Optional[str] = None
     season_end: Optional[str] = None
+    image_url: Optional[str] = None
+    emoji: Optional[str] = None
     size_name: str = "Standard"
     unit: str = "box"
     price: float
     currency: str = "SGD"
+    initial_stock: int = 0
 
 
 @router.post("", response_model=APIResponse[ProductOut], status_code=201)
@@ -67,6 +70,8 @@ def create_product(
         tag=body.tag,
         season_start=body.season_start,
         season_end=body.season_end,
+        image_url=body.image_url,
+        emoji=body.emoji,
         is_active=1,
     )
     db.add(product)
@@ -86,6 +91,13 @@ def create_product(
         currency=body.currency,
     )
     db.add(pricing)
+
+    stock = StockInventory(
+        product_variant_id=variant.id,
+        quantity_available=max(0, body.initial_stock),
+        reserved_quantity=0,
+    )
+    db.add(stock)
     db.commit()
 
     data = product_service.get_product_by_id(db, product.id)
@@ -110,6 +122,79 @@ def reorder_products(
             product.display_order = item.display_order
     db.commit()
     data = product_service.get_all_products(db)
+    return APIResponse(data=data)
+
+
+class ProductUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    origin: Optional[str] = None
+    tag: Optional[str] = None
+    season_start: Optional[str] = None
+    season_end: Optional[str] = None
+    image_url: Optional[str] = None
+    emoji: Optional[str] = None
+    unit: Optional[str] = None
+    price: Optional[float] = None
+
+
+@router.patch("/{product_id}", response_model=APIResponse[ProductOut])
+def update_product(
+    product_id: int,
+    body: ProductUpdate,
+    db: Session = Depends(get_db),
+    _admin=Depends(get_current_admin),
+):
+    """Update editable fields of a product."""
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail=f"Product {product_id} not found")
+    if body.name is not None:
+        existing = db.query(Product).filter(Product.name == body.name, Product.id != product_id).first()
+        if existing:
+            raise HTTPException(status_code=409, detail=f"Product '{body.name}' already exists")
+        product.name = body.name
+    if body.description is not None:
+        product.description = body.description
+    if body.origin is not None:
+        product.origin = body.origin
+    if body.tag is not None:
+        product.tag = body.tag
+    if body.season_start is not None:
+        product.season_start = body.season_start
+    if body.season_end is not None:
+        product.season_end = body.season_end
+    if body.image_url is not None:
+        product.image_url = body.image_url
+    if body.emoji is not None:
+        product.emoji = body.emoji
+    db.commit()
+
+    # Update variant unit and/or price if provided
+    if body.unit is not None or body.price is not None:
+        variant = db.query(ProductVariant).filter(ProductVariant.product_id == product_id).first()
+        if variant:
+            if body.unit is not None:
+                variant.unit = body.unit
+                db.commit()
+            if body.price is not None:
+                today = date.today()
+                pricing = (
+                    db.query(Pricing)
+                    .filter(
+                        Pricing.product_variant_id == variant.id,
+                        or_(Pricing.valid_from == None, Pricing.valid_from <= today),
+                        or_(Pricing.valid_to == None, Pricing.valid_to >= today),
+                    )
+                    .first()
+                )
+                if not pricing:
+                    pricing = db.query(Pricing).filter(Pricing.product_variant_id == variant.id).first()
+                if pricing:
+                    pricing.base_price = body.price
+                    db.commit()
+
+    data = product_service.get_product_by_id(db, product_id)
     return APIResponse(data=data)
 
 
@@ -166,3 +251,73 @@ def toggle_product_active(
     db.refresh(product)
     data = product_service.get_product_by_id(db, product_id)
     return APIResponse(data=data)
+
+
+class StockUpdate(BaseModel):
+    quantity_available: int
+
+
+@router.patch("/{product_id}/stock", response_model=APIResponse[ProductOut])
+def update_product_stock(
+    product_id: int,
+    body: StockUpdate,
+    db: Session = Depends(get_db),
+    _admin=Depends(get_current_admin),
+):
+    """Set quantity_available for the first variant of a product."""
+    if body.quantity_available < 0:
+        raise HTTPException(status_code=422, detail="quantity_available must be >= 0")
+    variant = db.query(ProductVariant).filter(ProductVariant.product_id == product_id).first()
+    if not variant:
+        raise HTTPException(status_code=404, detail=f"No variant found for product {product_id}")
+    stock = db.query(StockInventory).filter(StockInventory.product_variant_id == variant.id).first()
+    if stock:
+        stock.quantity_available = body.quantity_available
+    else:
+        db.add(StockInventory(product_variant_id=variant.id, quantity_available=body.quantity_available, reserved_quantity=0))
+    db.commit()
+    data = product_service.get_product_by_id(db, product_id)
+    return APIResponse(data=data)
+
+
+@router.delete("/{product_id}", response_model=APIResponse[dict])
+def delete_product(
+    product_id: int,
+    db: Session = Depends(get_db),
+    _admin=Depends(get_current_admin),
+):
+    """Permanently delete a product and all associated variants, pricing, and stock."""
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail=f"Product {product_id} not found")
+    variants = db.query(ProductVariant).filter(ProductVariant.product_id == product_id).all()
+    for variant in variants:
+        db.query(StockInventory).filter(StockInventory.product_variant_id == variant.id).delete()
+        db.query(Pricing).filter(Pricing.product_variant_id == variant.id).delete()
+    db.query(ProductVariant).filter(ProductVariant.product_id == product_id).delete()
+    db.delete(product)
+    db.commit()
+    return APIResponse(data={"product_id": product_id, "deleted": True})
+
+
+@router.post("/{product_id}/reset-stock", response_model=APIResponse[dict])
+def reset_product_stock(
+    product_id: int,
+    db: Session = Depends(get_db),
+    _admin=Depends(get_current_admin),
+):
+    """Reset stock to 0 for all variants of a single product.
+    Creates a stock row if one is missing."""
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail=f"Product {product_id} not found")
+    variants = db.query(ProductVariant).filter(ProductVariant.product_id == product_id).all()
+    for variant in variants:
+        stock = db.query(StockInventory).filter(StockInventory.product_variant_id == variant.id).first()
+        if stock:
+            stock.quantity_available = 0
+            stock.reserved_quantity = 0
+        else:
+            db.add(StockInventory(product_variant_id=variant.id, quantity_available=0, reserved_quantity=0))
+    db.commit()
+    return APIResponse(data={"product_id": product_id, "reset": len(variants)})

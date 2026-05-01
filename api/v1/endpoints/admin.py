@@ -768,16 +768,16 @@ def get_assigned_orders(
 
 @router.get("/orders", response_model=list[dict])
 def list_all_orders(
-    delivery_type: Optional[str] = Query(None),
-    payment_status: Optional[str] = Query(None),
-    order_status: Optional[str] = Query(None),
-    pickup_location_id: Optional[int] = Query(None),
+    delivery_type: Optional[str] = Query(None),      # comma-separated
+    payment_status: Optional[str] = Query(None),     # comma-separated
+    order_status: Optional[str] = Query(None),       # comma-separated
+    pickup_location_id: Optional[str] = Query(None), # comma-separated ints
     delivery_boy_id: Optional[int] = Query(None),
-    assigned: Optional[str] = Query(None),   # "yes" | "no"
-    payment_method: Optional[str] = Query(None),
-    date_from: Optional[str] = Query(None),  # ISO date string YYYY-MM-DD
+    assigned: Optional[str] = Query(None),           # "yes" | "no"
+    payment_method: Optional[str] = Query(None),     # comma-separated
+    date_from: Optional[str] = Query(None),          # ISO date string YYYY-MM-DD
     date_to: Optional[str] = Query(None),
-    tag_id: Optional[str] = Query(None),     # numeric id or "untagged"
+    tag_id: Optional[str] = Query(None),             # numeric id or "untagged"
     current_admin: AdminUser = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
@@ -796,13 +796,21 @@ def list_all_orders(
     )
 
     if delivery_type:
-        query = query.filter(Order.delivery_type == delivery_type)
+        vals = [v.strip() for v in delivery_type.split(',') if v.strip()]
+        if vals:
+            query = query.filter(Order.delivery_type.in_(vals))
     if payment_status:
-        query = query.filter(Order.payment_status == payment_status)
+        vals = [v.strip() for v in payment_status.split(',') if v.strip()]
+        if vals:
+            query = query.filter(Order.payment_status.in_(vals))
     if order_status:
-        query = query.filter(Order.order_status == order_status)
+        vals = [v.strip() for v in order_status.split(',') if v.strip()]
+        if vals:
+            query = query.filter(Order.order_status.in_(vals))
     if pickup_location_id:
-        query = query.filter(Order.pickup_location_id == pickup_location_id)
+        ids = [int(v) for v in pickup_location_id.split(',') if v.strip().isdigit()]
+        if ids:
+            query = query.filter(Order.pickup_location_id.in_(ids))
     if delivery_boy_id:
         query = query.filter(Order.delivery_boy_id == delivery_boy_id)
     if assigned == "yes":
@@ -810,7 +818,9 @@ def list_all_orders(
     elif assigned == "no":
         query = query.filter(Order.delivery_boy_id.is_(None))
     if payment_method:
-        query = query.filter(Order.payment_method == payment_method)
+        vals = [v.strip() for v in payment_method.split(',') if v.strip()]
+        if vals:
+            query = query.filter(Order.payment_method.in_(vals))
     if tag_id == "untagged":
         query = query.filter(Order.delivery_tag_id.is_(None))
     elif tag_id:

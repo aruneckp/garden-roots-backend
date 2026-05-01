@@ -15,3 +15,5 @@ class SiteConfigUpdate(BaseModel):
 
 class SiteConfigMapOut(BaseModel):
     banner_messages: Optional[str] = None
+    banner_statuses: Optional[str] = None
+    uploaded_banners: Optional[str] = None

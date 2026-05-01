@@ -17,6 +17,8 @@ def get_config(db: Session = Depends(get_db)):
     data = {r.config_key: r.config_value for r in rows}
     return APIResponse(data=SiteConfigMapOut(
         banner_messages=data.get("banner_messages"),
+        banner_statuses=data.get("banner_statuses"),
+        uploaded_banners=data.get("uploaded_banners"),
     ))
 
 
@@ -30,8 +32,10 @@ def update_config(
     """Update a config value. Requires admin auth."""
     row = db.query(SiteConfig).filter(SiteConfig.config_key == config_key).first()
     if not row:
-        raise HTTPException(status_code=404, detail=f"Config key '{config_key}' not found")
-    row.config_value = body.config_value
+        row = SiteConfig(config_key=config_key, config_value=body.config_value)
+        db.add(row)
+    else:
+        row.config_value = body.config_value
     db.commit()
     db.refresh(row)
     return APIResponse(data=SiteConfigOut.model_validate(row))

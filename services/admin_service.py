@@ -943,23 +943,24 @@ def get_shipment_status_report(db: Session, shipment_id: int):
 
 
 def get_pending_payments_across_shipments(db: Session):
-    """Get all orders where payment has not yet been collected."""
+    """Get all orders with a payment_collection_status (to_be_received or received)."""
     from database.models import Order
 
     orders = (
         db.query(Order)
-        .filter(Order.payment_collection_status == "to_be_received")
+        .filter(Order.payment_collection_status.in_(["to_be_received", "received"]))
         .order_by(Order.created_at.desc())
         .all()
     )
 
+    pending_orders = [o for o in orders if (o.payment_collection_status or "to_be_received") == "to_be_received"]
     total_amount = sum(
         float(o.actual_price if o.actual_price is not None else o.total_price)
-        for o in orders
+        for o in pending_orders
     )
 
     return {
-        "pending_records": len(orders),
+        "pending_records": len(pending_orders),
         "total_pending_amount": total_amount,
         "details": [
             {
@@ -969,7 +970,9 @@ def get_pending_payments_across_shipments(db: Session):
                 "customer_phone": o.customer_phone or "",
                 "amount": float(o.actual_price if o.actual_price is not None else o.total_price),
                 "payment_status": o.payment_status,
+                "payment_collection_status": o.payment_collection_status or "to_be_received",
                 "payment_received_by": o.payment_received_by or "",
+                "payment_updated_by": o.payment_updated_by or "",
                 "created_at": o.created_at,
             }
             for o in orders

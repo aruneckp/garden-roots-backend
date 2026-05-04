@@ -84,7 +84,7 @@ async def upload_banner(
             i += 1
 
     dest.write_bytes(contents)
-    src = f"/{dest.name}"
+    src = f"/banners/{dest.name}"
 
     # Update site_config
     existing = _get_uploaded_banners(db)
@@ -108,7 +108,7 @@ def delete_banner(
     if dest.exists():
         dest.unlink()
 
-    src = f"/{filename}"
+    src = f"/banners/{filename}"
     existing = [s for s in _get_uploaded_banners(db) if s != src]
     _save_uploaded_banners(db, existing)
 

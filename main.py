@@ -1,9 +1,12 @@
 import logging
 from contextlib import asynccontextmanager
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
+from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from config.settings import settings
@@ -76,6 +79,15 @@ app.add_middleware(AuditUserMiddleware)
 app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(Exception, unhandled_exception_handler)
+
+# ---------------------------------------------------------------------------
+# Static files — uploaded banners served directly from the backend
+# ---------------------------------------------------------------------------
+_banner_dir = Path(settings.banner_upload_dir)
+if not _banner_dir.is_absolute():
+    _banner_dir = (Path.cwd() / _banner_dir).resolve()
+_banner_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/banners", StaticFiles(directory=str(_banner_dir)), name="banners")
 
 # ---------------------------------------------------------------------------
 # Routers

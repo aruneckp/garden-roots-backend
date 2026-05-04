@@ -84,7 +84,7 @@ class Settings(BaseSettings):
     # Absolute or relative (to CWD) path where uploaded Banner images are saved.
     # In the monorepo this points at the Vite public/ folder so the dev watcher
     # picks them up automatically.
-    banner_upload_dir: str = "../garden-roots-frontend/public"
+    banner_upload_dir: str = "./uploads"
 
     # ── Business rules (legacy — kept for reference) ──────────────────────────
     delivery_free_threshold: float = 120.0

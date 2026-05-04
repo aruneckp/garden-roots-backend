@@ -793,6 +793,7 @@ def list_all_orders(
             .joinedload(ProductVariant.product),
         joinedload(Order.pickup_location),
         joinedload(Order.delivery_boy),
+        joinedload(Order.delivery_tag),
     )
 
     if delivery_type:
@@ -917,6 +918,11 @@ def get_abandoned_checkouts(
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
     orders = (
         db.query(Order)
+        .options(
+            selectinload(Order.order_items)
+                .joinedload(OrderItem.product_variant)
+                .joinedload(ProductVariant.product),
+        )
         .filter(
             Order.payment_method == "paynow",
             Order.payment_status == "pending",

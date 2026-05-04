@@ -724,7 +724,7 @@ def get_payment_summary(db: Session, shipment_id: int):
     }
 
 
-def mark_payment_paid(db: Session, payment_id: int, update_data):
+def mark_payment_paid(db: Session, payment_id: int, update_data, received_by: str = None):
     """Mark a payment as paid."""
     from database.models import PaymentRecord
     from datetime import datetime, timezone
@@ -739,6 +739,8 @@ def mark_payment_paid(db: Session, payment_id: int, update_data):
         payment.payment_method = update_data.payment_method
     if update_data.transaction_ref:
         payment.transaction_ref = update_data.transaction_ref
+    if received_by and not payment.received_by:
+        payment.received_by = received_by
 
     db.commit()
     db.refresh(payment)
@@ -941,26 +943,35 @@ def get_shipment_status_report(db: Session, shipment_id: int):
 
 
 def get_pending_payments_across_shipments(db: Session):
-    """Get all pending payments across all shipments."""
-    from database.models import PaymentRecord, ShipmentBox, Shipment
+    """Get all orders where payment has not yet been collected."""
+    from database.models import Order
 
-    records = db.query(PaymentRecord).join(
-        ShipmentBox, ShipmentBox.id == PaymentRecord.shipment_box_id
-    ).join(
-        Shipment, Shipment.id == ShipmentBox.shipment_id
-    ).filter(PaymentRecord.payment_status == "pending").all()
+    orders = (
+        db.query(Order)
+        .filter(Order.payment_collection_status == "to_be_received")
+        .order_by(Order.created_at.desc())
+        .all()
+    )
+
+    total_amount = sum(
+        float(o.actual_price if o.actual_price is not None else o.total_price)
+        for o in orders
+    )
 
     return {
-        "pending_records": len(records),
-        "total_pending_amount": sum(r.amount for r in records),
+        "pending_records": len(orders),
+        "total_pending_amount": total_amount,
         "details": [
             {
-                "payment_id": r.id,
-                "shipment_ref": r.shipment_box.shipment.shipment_ref,
-                "box_number": r.shipment_box.box_number,
-                "amount": float(r.amount),
-                "created_at": r.created_at,
+                "order_id": o.id,
+                "order_ref": o.order_ref,
+                "customer_name": o.customer_name,
+                "customer_phone": o.customer_phone or "",
+                "amount": float(o.actual_price if o.actual_price is not None else o.total_price),
+                "payment_status": o.payment_status,
+                "payment_received_by": o.payment_received_by or "",
+                "created_at": o.created_at,
             }
-            for r in records
+            for o in orders
         ]
     }

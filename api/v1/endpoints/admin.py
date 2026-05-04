@@ -551,19 +551,20 @@ def get_payments_dashboard(
         for row in status_rows
     ]
 
-    from database.models import PaymentRecord
     owner_rows = (
         db.query(
-            PaymentRecord.received_by,
-            func.count(PaymentRecord.id).label("count"),
+            Order.payment_received_by,
+            func.count(Order.id).label("count"),
         )
-        .filter(PaymentRecord.received_by.isnot(None), PaymentRecord.received_by != "")
-        .group_by(PaymentRecord.received_by)
-        .order_by(func.count(PaymentRecord.id).desc())
+        .filter(
+            Order.payment_received_by.isnot(None),
+        )
+        .group_by(Order.payment_received_by)
+        .order_by(func.count(Order.id).desc())
         .all()
     )
     payment_owners_data = [
-        {"owner": row.received_by, "count": row.count}
+        {"owner": row.payment_received_by, "count": row.count}
         for row in owner_rows
     ]
 
@@ -581,7 +582,8 @@ def mark_payment_as_paid(
     db: Session = Depends(get_db)
 ):
     """Mark a payment as paid."""
-    return mark_payment_paid(db, payment_id, payload)
+    received_by = current_admin.full_name or current_admin.username
+    return mark_payment_paid(db, payment_id, payload, received_by=received_by)
 
 
 # ============================================================================
@@ -970,6 +972,78 @@ def get_null_shipment_order_count(
         Order.shipment_id.is_(None),
     ).count()
     return {"count": count}
+
+
+@router.get("/orders/{order_id}", response_model=dict)
+def get_single_order(
+    order_id: int,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Return a single order by ID in the same shape as the list endpoint."""
+    o = db.query(Order).options(
+        selectinload(Order.order_items)
+            .joinedload(OrderItem.product_variant)
+            .joinedload(ProductVariant.product),
+        joinedload(Order.pickup_location),
+        joinedload(Order.delivery_boy),
+        joinedload(Order.delivery_tag),
+    ).filter(Order.id == order_id).first()
+    if not o:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Order not found")
+    items = [
+        {
+            "product_variant_id": i.product_variant_id,
+            "variant": (
+                f"{i.product_variant.product.name} – {i.product_variant.size_name}"
+                if i.product_variant and i.product_variant.product else "—"
+            ),
+            "qty": i.quantity,
+            "unit_price": str(i.unit_price),
+            "subtotal": str(i.subtotal),
+        }
+        for i in o.order_items
+    ]
+    return {
+        "id": o.id,
+        "order_ref": o.order_ref,
+        "customer_name": o.customer_name,
+        "customer_email": o.customer_email,
+        "customer_phone": o.customer_phone,
+        "delivery_type": o.delivery_type,
+        "delivery_address": o.delivery_address,
+        "pickup_location_id": o.pickup_location_id,
+        "pickup_location_name": o.pickup_location.name if o.pickup_location else None,
+        "pickup_location_address": o.pickup_location.address if o.pickup_location else None,
+        "order_status": o.order_status,
+        "payment_status": o.payment_status,
+        "payment_method": o.payment_method,
+        "subtotal": str(o.subtotal),
+        "delivery_fee": str(o.delivery_fee),
+        "total_price": str(o.total_price),
+        "delivery_boy_id": o.delivery_boy_id,
+        "delivery_boy_name": o.delivery_boy.full_name or o.delivery_boy.username if o.delivery_boy else None,
+        "delivery_code": o.delivery_code,
+        "assigned_at": o.assigned_at.isoformat() if o.assigned_at else None,
+        "customer_notes": o.customer_notes,
+        "shipment_id": o.shipment_id,
+        "booked_by_admin_id": o.booked_by_admin_id,
+        "booked_by_admin_name": o.booked_by_admin_name,
+        "delivery_tag_id": o.delivery_tag_id,
+        "delivery_tag_name": o.delivery_tag.name if o.delivery_tag else None,
+        "delivery_tag_color": o.delivery_tag.color if o.delivery_tag else None,
+        "actual_price": float(o.actual_price) if o.actual_price is not None else None,
+        "payment_comments": o.payment_comments,
+        "payment_received_by": o.payment_received_by,
+        "payment_updated_by": o.payment_updated_by,
+        "payment_collection_status": o.payment_collection_status or "to_be_received",
+        "promo_code": o.promo_code,
+        "discount_amount": str(o.discount_amount) if o.discount_amount is not None else "0",
+        "items": items,
+        "items_count": len(items),
+        "created_at": o.created_at.isoformat() if o.created_at else None,
+    }
 
 
 @router.post("/orders/bulk-shipment")

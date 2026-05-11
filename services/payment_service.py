@@ -254,7 +254,7 @@ class PaymentService:
         sorted_string = "&".join(
             f"{k}={v}"
             for k, v in sorted(payload.items())
-            if k != "hmac" and v not in (None, "")
+            if k != "hmac"
         )
         expected = hmac_lib.new(
             settings.hitpay_salt.encode("utf-8"),

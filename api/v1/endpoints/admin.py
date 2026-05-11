@@ -1374,29 +1374,31 @@ def update_order_payment_details(
 
     if body.payment_collection_status is not None:
         if body.payment_collection_status == "received" and effective_received_by:
-            # Direct identifiers from admin_users (username, full_name, email)
-            caller_identifiers = {
-                v for v in [
-                    getattr(current_admin, "username", None),
-                    getattr(current_admin, "full_name", None),
-                    getattr(current_admin, "email", None),
-                ] if v
-            }
-            is_self = effective_received_by in caller_identifiers
-            # Cross-table check: find the recipient in users table and compare by email
-            if not is_self and getattr(current_admin, "email", None):
-                target_user = (
-                    db.query(User)
-                    .filter(User.name == effective_received_by, User.role == "admin")
-                    .first()
-                )
-                if target_user and target_user.email == current_admin.email:
-                    is_self = True
-            if not is_self:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Only the assigned recipient can mark payment as 'Received'.",
-                )
+            # "Business Account" is an adhoc entry — any admin can mark it as received
+            if effective_received_by != "Business Account":
+                # Direct identifiers from admin_users (username, full_name, email)
+                caller_identifiers = {
+                    v for v in [
+                        getattr(current_admin, "username", None),
+                        getattr(current_admin, "full_name", None),
+                        getattr(current_admin, "email", None),
+                    ] if v
+                }
+                is_self = effective_received_by in caller_identifiers
+                # Cross-table check: find the recipient in users table and compare by email
+                if not is_self and getattr(current_admin, "email", None):
+                    target_user = (
+                        db.query(User)
+                        .filter(User.name == effective_received_by, User.role == "admin")
+                        .first()
+                    )
+                    if target_user and target_user.email == current_admin.email:
+                        is_self = True
+                if not is_self:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Only the assigned recipient can mark payment as 'Received'.",
+                    )
         order.payment_collection_status = body.payment_collection_status
 
     order.payment_updated_by = (
@@ -1651,6 +1653,15 @@ def list_admin_users(
             "email": current_admin.email,
             "is_me": True,
         })
+
+    # Always append the special "Business Account" adhoc entry — any admin can assign to it
+    result.append({
+        "id": "business_account",
+        "name": "Business Account",
+        "username": "Business Account",
+        "email": None,
+        "is_me": False,
+    })
 
     return result
 

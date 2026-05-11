@@ -239,4 +239,7 @@ def cancel_order(db: Session, order_id: int) -> dict:
 
 
 def _to_out(order: Order) -> OrderOut:
-    return OrderOut.model_validate(order)
+    out = OrderOut.model_validate(order)
+    if order.shipment and order.shipment.expected_delivery_date:
+        out.next_delivery_date = order.shipment.expected_delivery_date
+    return out

@@ -78,6 +78,7 @@ class OrderOut(BaseModel):
     discount_amount: Decimal = Decimal("0")
     created_at: datetime
     order_items: List[OrderItemOut] = []
+    next_delivery_date: Optional[datetime] = None
 
 
 class PaymentConfirmIn(BaseModel):

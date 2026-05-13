@@ -67,6 +67,10 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
 
+    # ── OneMap (Singapore address lookup) ────────────────────────────────────
+    # Free token from https://www.onemap.gov.sg/apidocs/ — required since 2024
+    onemap_api_token: str = ""
+
     # ── Google Maps (Distance Matrix) ─────────────────────────────────────────
     google_maps_api_key: str = ""
     # Warehouse / source postal code used as the origin for distance calculations
@@ -79,6 +83,16 @@ class Settings(BaseSettings):
     delivery_far_fee: float = 10.0
     # Comma-separated area names that always get the near fee regardless of distance
     flat_fee_areas: str = "tampines,punggol,sengkang,pasir ris"
+    # Comma-separated area names that get the mid fee (between near and far)
+    mid_fee_areas: str = ""
+    # Comma-separated street keywords that get the mid fee (overrides area — e.g. sub-areas within a near zone)
+    mid_fee_streets: str = ""
+    # Delivery fee for mid-zone orders (SGD)
+    delivery_mid_fee: float = 6.0
+    # Comma-separated area names that get the high fee (Zone 3)
+    high_fee_areas: str = ""
+    # Delivery fee for high-zone orders (SGD)
+    delivery_high_fee: float = 8.0
 
     # ── Banner uploads ────────────────────────────────────────────────────────
     # Absolute or relative (to CWD) path where uploaded Banner images are saved.

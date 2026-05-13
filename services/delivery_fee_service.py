@@ -1,18 +1,15 @@
 """
-Delivery fee calculation using OneMap (address lookup) + Google Distance Matrix (fee).
+Delivery fee calculation using OneMap for address lookup.
 
-Address resolution flow:
-  1. OneMap.sg API (free, no API key, Singapore-specific) → street address + area name
-     e.g. postal 542298 → street="Blk 298 Tampines Street 22", area="Tampines"
-  2a. If area is in FLAT_FEE_AREAS → return near fee immediately (no Distance Matrix call)
-  2b. Otherwise → Google Distance Matrix → fee based on driving distance
+Resolution flow:
+  1. OneMap.sg API → street + area name  (requires ONEMAP_API_TOKEN)
+  2. Postal-prefix fallback if OneMap unavailable
+  3. Zone match: Near ($5) → Mid ($6, street override) → High ($8) → far fee ($8) for unknown areas
 
-All thresholds, fees, and special zones are configured via environment variables.
-Falls back to far fee on any error so orders are never under-charged.
+All fees and zone lists are configured via environment variables.
 """
 
 import logging
-import re
 from decimal import Decimal
 from typing import Optional
 
@@ -22,9 +19,7 @@ from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-GOOGLE_DISTANCE_MATRIX_URL = "https://maps.googleapis.com/maps/api/distancematrix/json"
-GOOGLE_GEOCODING_URL        = "https://maps.googleapis.com/maps/api/geocode/json"
-ONEMAP_SEARCH_URL           = "https://www.onemap.gov.sg/api/common/elastic/search"
+ONEMAP_SEARCH_URL = "https://www.onemap.gov.sg/api/common/elastic/search"
 SINGAPORE_COUNTRY_CODE      = "SG"
 
 # Singapore town / estate name prefix lookup.
@@ -65,6 +60,8 @@ _TOWN_PREFIXES: dict[str, str] = {
     "TENGAH":        "Tengah",
     "SIMEI":         "Simei",
     "DOVER":         "Dover",
+    "SIGLAP":        "Siglap",
+    "TUAS":          "Tuas",
 }
 
 # Pre-sort keys by descending length so longer prefixes are checked first
@@ -73,11 +70,16 @@ _SORTED_TOWN_PREFIXES = sorted(_TOWN_PREFIXES.items(), key=lambda kv: len(kv[0])
 # Singapore HDB postal code 2-digit prefix → area name for known flat-fee zones.
 # Used as a fallback when OneMap returns no results (e.g. auth required).
 _POSTAL_PREFIX_TO_AREA: dict[str, str] = {
+    "45": "Siglap",
+    "46": "Bedok",
     "51": "Pasir Ris",
     "52": "Tampines",
-    "53": "Tampines",
+    "53": "Sengkang",   # 53xxxx = Sengkang (was wrongly mapped to Tampines)
     "54": "Sengkang",
     "55": "Sengkang",
+    "73": "Woodlands",
+    "75": "Sembawang",
+    "76": "Yishun",
     "82": "Punggol",
     "83": "Punggol",
 }
@@ -86,8 +88,26 @@ _POSTAL_PREFIX_TO_AREA: dict[str, str] = {
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 def _get_flat_fee_areas() -> set:
-    """Return the lowercase set of area names that always get the near fee."""
+    """Return the lowercase set of area names that always get the near fee ($5)."""
     return {a.strip().lower() for a in settings.flat_fee_areas.split(",") if a.strip()}
+
+
+def _get_mid_fee_areas() -> set:
+    """Return the lowercase set of area names that get the mid fee ($6)."""
+    return {a.strip().lower() for a in settings.mid_fee_areas.split(",") if a.strip()}
+
+
+def _is_mid_fee_street(street: str) -> bool:
+    """Return True if the street name contains a mid-fee keyword (e.g. compassvale, rivervale)."""
+    if not street or not settings.mid_fee_streets:
+        return False
+    street_lower = street.lower()
+    return any(kw.strip().lower() in street_lower for kw in settings.mid_fee_streets.split(",") if kw.strip())
+
+
+def _get_high_fee_areas() -> set:
+    """Return the lowercase set of area names that get the high fee ($8, Zone 3)."""
+    return {a.strip().lower() for a in settings.high_fee_areas.split(",") if a.strip()}
 
 
 def _area_from_postal_code(postal_code: str) -> str:
@@ -147,52 +167,19 @@ def _parse_onemap_result(data: dict) -> dict:
     return result
 
 
-def _format_address(postal_code: str) -> str:
-    return f"{postal_code}, {SINGAPORE_COUNTRY_CODE}"
-
-
-def _build_distance_params(postal_code: str) -> dict:
-    return {
-        "origins":      _format_address(settings.delivery_source_postal),
-        "destinations": _format_address(postal_code),
-        "key":          settings.google_maps_api_key,
-        "mode":         "driving",
-        "units":        "metric",
-    }
-
-
-def _parse_distance_meters(response_data: dict) -> Optional[int]:
-    """Extract driving distance in metres from a Distance Matrix response row."""
-    if response_data.get("status") != "OK":
-        logger.warning("Google Distance Matrix top-level error: %s", response_data.get("status"))
-        return None
-    rows = response_data.get("rows", [])
-    elements = rows[0].get("elements", []) if rows else []
-    if not elements:
-        return None
-    element = elements[0]
-    if element.get("status") != "OK":
-        logger.warning("Distance element error: %s", element.get("status"))
-        return None
-    return element.get("distance", {}).get("value")  # metres
-
-
-def _fee_from_meters(distance_meters: Optional[int]) -> Decimal:
-    """Map a driving distance (metres) to the correct delivery fee."""
-    far_fee  = Decimal(str(settings.delivery_far_fee))
-    near_fee = Decimal(str(settings.delivery_near_fee))
-    if distance_meters is None:
-        return far_fee
-    return near_fee if (distance_meters / 1000.0) <= settings.delivery_near_max_km else far_fee
-
-
 # ── OneMap location helpers (async + sync) ───────────────────────────────────
+
+def _onemap_headers() -> dict:
+    """Return Authorization header if ONEMAP_API_TOKEN is configured."""
+    token = getattr(settings, "onemap_api_token", "")
+    return {"Authorization": token} if token else {}
+
 
 async def _get_location_async(postal_code: str) -> dict:
     """Async: call OneMap to resolve postal code → {area, street}."""
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
-            resp = await client.get(ONEMAP_SEARCH_URL, params={
+            resp = await client.get(ONEMAP_SEARCH_URL, headers=_onemap_headers(), params={
                 "searchVal":      postal_code,
                 "returnGeom":     "N",
                 "getAddrDetails": "Y",
@@ -209,7 +196,7 @@ def _get_location_sync(postal_code: str) -> dict:
     """Sync: call OneMap to resolve postal code → {area, street}."""
     try:
         with httpx.Client(timeout=8.0) as client:
-            resp = client.get(ONEMAP_SEARCH_URL, params={
+            resp = client.get(ONEMAP_SEARCH_URL, headers=_onemap_headers(), params={
                 "searchVal":      postal_code,
                 "returnGeom":     "N",
                 "getAddrDetails": "Y",
@@ -222,119 +209,47 @@ def _get_location_sync(postal_code: str) -> dict:
         return {"area": "", "street": ""}
 
 
-# ── Google Geocoding area helpers (fallback when OneMap is unavailable) ───────
-
-_GEOCODING_AREA_TYPES = ("neighborhood", "sublocality_level_1", "sublocality")
-
-
-def _area_from_geocoding_result(data: dict) -> str:
-    """Extract area name from a Google Geocoding API response dict."""
-    if data.get("status") != "OK" or not data.get("results"):
-        return ""
-    result = data["results"][0]
-    # 1. Try specific address component types
-    for comp in result.get("address_components", []):
-        if any(t in comp.get("types", []) for t in _GEOCODING_AREA_TYPES):
-            return comp["long_name"]
-    # 2. Fall back to scanning the formatted_address with known town prefixes
-    formatted = result.get("formatted_address", "")
-    if formatted:
-        return _extract_area_from_text(formatted)
-    return ""
-
-
-async def _get_area_from_geocoding_async(postal_code: str) -> str:
-    """Resolve area name via Google Geocoding API (async)."""
-    if not settings.google_maps_api_key:
-        return ""
-    try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            resp = await client.get(GOOGLE_GEOCODING_URL, params={
-                "address":    f"Singapore {postal_code}",
-                "key":        settings.google_maps_api_key,
-                "components": "country:SG",
-            })
-            resp.raise_for_status()
-            return _area_from_geocoding_result(resp.json())
-    except Exception as exc:
-        logger.warning("Geocoding async failed for %s: %s", postal_code, exc)
-    return ""
-
-
-def _get_area_from_geocoding_sync(postal_code: str) -> str:
-    """Resolve area name via Google Geocoding API (sync)."""
-    if not settings.google_maps_api_key:
-        return ""
-    try:
-        with httpx.Client(timeout=8.0) as client:
-            resp = client.get(GOOGLE_GEOCODING_URL, params={
-                "address":    f"Singapore {postal_code}",
-                "key":        settings.google_maps_api_key,
-                "components": "country:SG",
-            })
-            resp.raise_for_status()
-            return _area_from_geocoding_result(resp.json())
-    except Exception as exc:
-        logger.warning("Geocoding sync failed for %s: %s", postal_code, exc)
-    return ""
-
-
 # ── Public async interface (used by the API endpoint) ────────────────────────
 
 async def get_delivery_fee_async(postal_code: str) -> dict:
     """
-    Return fee, street address, area name, and zone for the given postal code.
-    Uses OneMap for address resolution and Google Distance Matrix for fee calculation.
-    Falls back gracefully on any failure.
+    Return fee, street, area, and zone for the given postal code.
+    Near ($5) → Mid street override ($6) → Mid area ($6) → High ($8) → far fee ($8) for unknown areas.
     """
     far_fee        = float(settings.delivery_far_fee)
     near_fee       = float(settings.delivery_near_fee)
+    mid_fee        = float(settings.delivery_mid_fee)
+    high_fee       = float(settings.delivery_high_fee)
     free_threshold = float(settings.delivery_free_threshold)
     fallback = {"fee": far_fee, "area": "", "street": "", "zone": "Standard Area", "free_threshold": free_threshold}
 
-    # Step 1: Resolve address via OneMap (no API key required)
+    # Step 1: Resolve address via OneMap
     location = await _get_location_async(postal_code)
     area   = location["area"]
     street = location["street"]
 
-    # If OneMap didn't return an area (e.g. auth required), fall back to postal prefix
+    # If OneMap didn't return an area, fall back to postal prefix
     if not area:
         area = _area_from_postal_code(postal_code)
 
-    # Step 2a: Flat fee for special zones — skip Distance Matrix entirely
+    # Step 2a: Street-keyword mid zone — e.g. Compassvale/Rivervale within Sengkang
+    if _is_mid_fee_street(street):
+        return {"fee": mid_fee, "area": area, "street": street, "zone": "Mid Area", "free_threshold": free_threshold}
+
+    # Step 2b: Zone 1 — $5 delivery
     if area and area.lower() in _get_flat_fee_areas():
         return {"fee": near_fee, "area": area, "street": street, "zone": "Near Area", "free_threshold": free_threshold}
 
-    # Step 2b: Distance-based fee for all other areas
-    if not settings.google_maps_api_key:
-        logger.warning("GOOGLE_MAPS_API_KEY not set — returning default far fee")
-        return {**fallback, "area": area, "street": street, "free_threshold": free_threshold, "note": "Distance API not configured"}
+    # Step 2c: Zone 2 — $6 delivery
+    if area and area.lower() in _get_mid_fee_areas():
+        return {"fee": mid_fee, "area": area, "street": street, "zone": "Mid Area", "free_threshold": free_threshold}
 
-    # Resolve area name via Geocoding if still unknown
-    if not area:
-        area = await _get_area_from_geocoding_async(postal_code)
+    # Step 2d: Zone 3 — $8 delivery
+    if area and area.lower() in _get_high_fee_areas():
+        return {"fee": high_fee, "area": area, "street": street, "zone": "Standard Area", "free_threshold": free_threshold}
 
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(
-                GOOGLE_DISTANCE_MATRIX_URL, params=_build_distance_params(postal_code)
-            )
-            response.raise_for_status()
-            data = response.json()
-    except Exception as exc:
-        logger.error("Google Distance Matrix async call failed: %s", exc)
-        return {**fallback, "area": area, "street": street}
-
-    distance_meters = _parse_distance_meters(data)
-    fee    = _fee_from_meters(distance_meters)
-    is_near = float(fee) == near_fee
-    return {
-        "fee":            float(fee),
-        "area":           area,
-        "street":         street,
-        "zone":           "Near Area" if is_near else "Standard Area",
-        "free_threshold": free_threshold,
-    }
+    # Step 2e: Area not in any configured zone — charge the standard far fee
+    return {**fallback, "area": area, "street": street, "free_threshold": free_threshold}
 
 
 # ── Public sync interface (used by order_service inside a DB transaction) ────
@@ -347,34 +262,26 @@ def get_delivery_fee_sync(postal_code: Optional[str]) -> Decimal:
     """
     far_fee  = Decimal(str(settings.delivery_far_fee))
     near_fee = Decimal(str(settings.delivery_near_fee))
+    mid_fee  = Decimal(str(settings.delivery_mid_fee))
+    high_fee = Decimal(str(settings.delivery_high_fee))
 
     if not postal_code or len(postal_code) != 6:
         return far_fee
 
-    # Check flat fee zones first via OneMap, fall back to postal prefix
+    # Check fee zones via OneMap, fall back to postal prefix
     location = _get_location_sync(postal_code)
-    area = location["area"]
+    area   = location["area"]
+    street = location["street"]
     if not area:
         area = _area_from_postal_code(postal_code)
+    if _is_mid_fee_street(street):
+        return mid_fee
     if area and area.lower() in _get_flat_fee_areas():
         return near_fee
+    if area and area.lower() in _get_mid_fee_areas():
+        return mid_fee
+    if area and area.lower() in _get_high_fee_areas():
+        return high_fee
 
-    # Distance-based for other areas
-    if not settings.google_maps_api_key:
-        logger.warning("GOOGLE_MAPS_API_KEY not set — defaulting to far fee in order_service")
-        return far_fee
-
-    # area name not needed for fee calculation in sync path — skip geocoding call
-
-    try:
-        with httpx.Client(timeout=10.0) as client:
-            response = client.get(
-                GOOGLE_DISTANCE_MATRIX_URL, params=_build_distance_params(postal_code)
-            )
-            response.raise_for_status()
-            data = response.json()
-    except Exception as exc:
-        logger.error("Google Distance Matrix sync call failed: %s", exc)
-        return far_fee
-
-    return _fee_from_meters(_parse_distance_meters(data))
+    # Area not in any configured zone — charge the standard far fee
+    return far_fee

@@ -435,9 +435,13 @@ BEGIN
             v_old := v_old||'"status":"'||NVL(:OLD.status,'')||'",';
             v_new := v_new||'"status":"'||NVL(:NEW.status,'')||'",';
         END IF;
-        IF NVL(TO_CHAR(:OLD.arrival_date,'YYYY-MM-DD'),'~') != NVL(TO_CHAR(:NEW.arrival_date,'YYYY-MM-DD'),'~') THEN
-            v_old := v_old||'"arrival_date":"'||NVL(TO_CHAR(:OLD.arrival_date,'YYYY-MM-DD'),'')||'",';
-            v_new := v_new||'"arrival_date":"'||NVL(TO_CHAR(:NEW.arrival_date,'YYYY-MM-DD'),'')||'",';
+        IF NVL(TO_CHAR(:OLD.expected_reception_date,'YYYY-MM-DD'),'~') != NVL(TO_CHAR(:NEW.expected_reception_date,'YYYY-MM-DD'),'~') THEN
+            v_old := v_old||'"expected_reception_date":"'||NVL(TO_CHAR(:OLD.expected_reception_date,'YYYY-MM-DD'),'')||'",';
+            v_new := v_new||'"expected_reception_date":"'||NVL(TO_CHAR(:NEW.expected_reception_date,'YYYY-MM-DD'),'')||'",';
+        END IF;
+        IF NVL(TO_CHAR(:OLD.reception_date,'YYYY-MM-DD'),'~') != NVL(TO_CHAR(:NEW.reception_date,'YYYY-MM-DD'),'~') THEN
+            v_old := v_old||'"reception_date":"'||NVL(TO_CHAR(:OLD.reception_date,'YYYY-MM-DD'),'')||'",';
+            v_new := v_new||'"reception_date":"'||NVL(TO_CHAR(:NEW.reception_date,'YYYY-MM-DD'),'')||'",';
         END IF;
         IF LENGTH(v_old) > 0 THEN
             v_old := '{'||RTRIM(v_old,',')||'}';

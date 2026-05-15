@@ -22,6 +22,8 @@ from schemas.admin import (
     DeliveryTagIn, DeliveryTagOut, DeliveryTagUpdate, OrderBulkTagIn,
 )
 from services.order_action_service import log_order_action as _log_order_action
+from services.delivery_fee_service import get_delivery_fee_sync as _get_delivery_fee_sync
+from config.settings import settings as _settings
 from services.admin_service import (
     create_spoc_contact, get_spoc_contact, get_all_spoc_contacts,
     create_shipment, get_shipment, get_shipment_by_ref, get_all_shipments, update_shipment,
@@ -339,6 +341,7 @@ def get_shipment_orders(
                 "qty": i.quantity,
                 "unit_price": str(i.unit_price),
                 "subtotal": str(i.subtotal),
+                "box_weight": float(i.product_variant.box_weight) if i.product_variant and i.product_variant.box_weight is not None else None,
             }
             for i in o.order_items
         ]
@@ -860,6 +863,7 @@ def list_all_orders(
                 "qty": i.quantity,
                 "unit_price": str(i.unit_price),
                 "subtotal": str(i.subtotal),
+                "box_weight": float(i.product_variant.box_weight) if i.product_variant and i.product_variant.box_weight is not None else None,
             }
             for i in o.order_items
         ]
@@ -1176,6 +1180,7 @@ class _OrderEditIn(_BM):
     customer_email:     Optional[str] = None
     customer_phone:     Optional[str] = None
     delivery_address:   Optional[str] = None
+    postal_code:        Optional[str] = None   # required when changing delivery_type to 'delivery'
     customer_notes:     Optional[str] = None
     order_status:       Optional[str] = None
     payment_status:     Optional[str] = None   # 'pending' | 'succeeded' | 'failed' | 'cancelled'
@@ -1232,8 +1237,22 @@ def admin_update_order(
     if body.customer_notes     is not None: order.customer_notes     = body.customer_notes
     if body.order_status       is not None: order.order_status       = body.order_status
     if body.payment_status     is not None: order.payment_status     = body.payment_status
-    if body.delivery_type      is not None: order.delivery_type      = body.delivery_type
     if body.pickup_location_id is not None: order.pickup_location_id = body.pickup_location_id
+
+    # ── recalculate delivery fee when delivery_type changes ──
+    _pre_delivery_type = order.delivery_type
+    if body.delivery_type is not None:
+        order.delivery_type = body.delivery_type
+        if body.delivery_type != _pre_delivery_type:
+            if body.delivery_type == "pickup":
+                order.delivery_fee = 0
+            else:  # switching to delivery
+                _current_subtotal = float(order.subtotal or 0)
+                if _current_subtotal >= _settings.delivery_free_threshold:
+                    order.delivery_fee = 0
+                else:
+                    order.delivery_fee = float(_get_delivery_fee_sync(body.postal_code or ""))
+            order.total_price = float(order.subtotal or 0) + float(order.delivery_fee or 0)
 
     # ── replace items ──
     _post_items_map: dict = {}
@@ -1277,7 +1296,11 @@ def admin_update_order(
                 subtotal=line_subtotal,
             ))
 
-        order.subtotal    = subtotal
+        order.subtotal = subtotal
+        # Re-apply free-delivery threshold with the new subtotal
+        if order.delivery_type == "delivery" and float(order.delivery_fee or 0) > 0:
+            if subtotal >= _settings.delivery_free_threshold:
+                order.delivery_fee = 0
         order.total_price = subtotal + float(order.delivery_fee or 0)
 
     # ── detect changes and write action logs ──

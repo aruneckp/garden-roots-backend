@@ -83,3 +83,27 @@ class OrderOut(BaseModel):
 
 class PaymentConfirmIn(BaseModel):
     payment_intent_id: str
+
+
+# ---------------------------------------------------------------------------
+# Bulk order creation
+# ---------------------------------------------------------------------------
+
+class BulkOrderIn(BaseModel):
+    orders: List[OrderIn] = Field(..., min_length=1, max_length=200)
+
+
+class BulkOrderRowResult(BaseModel):
+    row: int
+    success: bool
+    order_ref: Optional[str] = None
+    order_id: Optional[int] = None
+    customer_name: Optional[str] = None
+    error: Optional[str] = None
+
+
+class BulkOrderOut(BaseModel):
+    total: int
+    succeeded: int
+    failed: int
+    results: List[BulkOrderRowResult]

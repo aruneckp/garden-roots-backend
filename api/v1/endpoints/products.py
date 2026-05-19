@@ -45,7 +45,6 @@ class ProductCreate(BaseModel):
     season_end: Optional[str] = None
     image_url: Optional[str] = None
     emoji: Optional[str] = None
-    size_name: str = "Standard"
     unit: str = "box"
     price: float
     currency: str = "SGD"
@@ -79,7 +78,7 @@ def create_product(
 
     variant = ProductVariant(
         product_id=product.id,
-        size_name=body.size_name,
+        size_name="Standard",
         unit=body.unit,
     )
     db.add(variant)

@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, selectinload, joinedload
 
 from database.connection import get_db
-from database.models import AdminUser, DeliveryBoy, DeliveryTag, Order, OrderActionLog, OrderActionType, OrderItem, OrderStatusLog, Pricing, ProductVariant, User
+from database.models import AdminTransaction, AdminUser, DeliveryBoy, DeliveryTag, Order, OrderActionLog, OrderActionType, OrderItem, OrderStatusLog, Pricing, ProductVariant, User
 from utils.auth import get_current_admin, verify_password, create_access_token, hash_password
 from schemas.admin import (
     AdminLoginIn, AdminTokenOut,
@@ -20,6 +20,8 @@ from schemas.admin import (
     DeliveryBoyIn, DeliveryBoyOut, AssignDeliveryIn,
     OrderBulkStatusIn, OrderShipmentUpdate, OrderBulkShipmentIn,
     DeliveryTagIn, DeliveryTagOut, DeliveryTagUpdate, OrderBulkTagIn,
+    OrderRefsIn,
+    AdminUserListItem, AdminTransactionIn, AdminTransactionOut, AdminTransactionRejectIn,
 )
 from services.order_action_service import log_order_action as _log_order_action
 from services.delivery_fee_service import get_delivery_fee_sync as _get_delivery_fee_sync
@@ -335,7 +337,7 @@ def get_shipment_orders(
             {
                 "product_variant_id": i.product_variant_id,
                 "variant": (
-                    f"{i.product_variant.product.name} – {i.product_variant.size_name}"
+                    i.product_variant.product.name
                     if i.product_variant and i.product_variant.product else "—"
                 ),
                 "qty": i.quantity,
@@ -352,6 +354,7 @@ def get_shipment_orders(
             "customer_email": o.customer_email,
             "customer_phone": o.customer_phone,
             "delivery_type": o.delivery_type,
+            "original_delivery_type": o.original_delivery_type,
             "delivery_address": o.delivery_address,
             "pickup_location_id": o.pickup_location_id,
             "pickup_location_name": o.pickup_location.name if o.pickup_location else None,
@@ -857,7 +860,7 @@ def list_all_orders(
             {
                 "product_variant_id": i.product_variant_id,
                 "variant": (
-                    f"{i.product_variant.product.name} – {i.product_variant.size_name}"
+                    i.product_variant.product.name
                     if i.product_variant and i.product_variant.product else "—"
                 ),
                 "qty": i.quantity,
@@ -874,6 +877,7 @@ def list_all_orders(
             "customer_email": o.customer_email,
             "customer_phone": o.customer_phone,
             "delivery_type": o.delivery_type,
+            "original_delivery_type": o.original_delivery_type,
             "delivery_address": o.delivery_address,
             "pickup_location_id": o.pickup_location_id,
             "pickup_location_name": o.pickup_location.name if o.pickup_location else None,
@@ -943,7 +947,7 @@ def get_abandoned_checkouts(
             {
                 "product_variant_id": i.product_variant_id,
                 "variant": (
-                    f"{i.product_variant.product.name} – {i.product_variant.size_name}"
+                    i.product_variant.product.name
                     if i.product_variant and i.product_variant.product else "—"
                 ),
                 "qty": i.quantity,
@@ -976,6 +980,51 @@ def get_null_shipment_order_count(
         Order.shipment_id.is_(None),
     ).count()
     return {"count": count}
+
+
+@router.post("/orders/reconcile")
+def reconcile_orders_by_refs(
+    payload: OrderRefsIn,
+    db: Session = Depends(get_db),
+    _admin=Depends(get_current_admin),
+):
+    """Look up orders by a list of order_refs (from CSV first column).
+    Returns matched orders with key fields and a list of unrecognised refs."""
+    refs = [r.strip() for r in payload.order_refs if r.strip()]
+    if not refs:
+        return {"found": [], "not_found": [], "total_refs": 0, "matched_count": 0}
+
+    orders = (
+        db.query(Order)
+        .options(joinedload(Order.delivery_tag))
+        .filter(Order.order_ref.in_(refs))
+        .all()
+    )
+    found_refs = {o.order_ref for o in orders}
+    not_found = [r for r in refs if r not in found_refs]
+
+    return {
+        "found": [
+            {
+                "id": o.id,
+                "order_ref": o.order_ref,
+                "customer_name": o.customer_name,
+                "customer_phone": o.customer_phone,
+                "delivery_address": o.delivery_address or "",
+                "delivery_type": o.delivery_type,
+                "order_status": o.order_status,
+                "payment_status": o.payment_status,
+                "total_price": float(o.total_price) if o.total_price is not None else None,
+                "delivery_tag_id": o.delivery_tag_id,
+                "delivery_tag_name": o.delivery_tag.name if o.delivery_tag else None,
+                "delivery_tag_color": o.delivery_tag.color if o.delivery_tag else None,
+            }
+            for o in orders
+        ],
+        "not_found": not_found,
+        "total_refs": len(refs),
+        "matched_count": len(orders),
+    }
 
 
 @router.get("/orders/{order_id}", response_model=dict)
@@ -1222,9 +1271,7 @@ def admin_update_order(
         for it in order.order_items:
             pv = it.product_variant
             if pv:
-                prod_name = pv.product.name if pv.product else f"Variant #{it.product_variant_id}"
-                size = pv.size_name
-                label = prod_name if not size or size.lower() == "standard" else f"{prod_name} ({size})"
+                label = pv.product.name if pv.product else f"Variant #{it.product_variant_id}"
             else:
                 label = f"Variant #{it.product_variant_id}"
             _pre_items_map[it.product_variant_id] = {"name": label, "qty": it.quantity}
@@ -1269,9 +1316,7 @@ def admin_update_order(
             if not variant:
                 continue
             # build post-snapshot entry while variant is already in scope
-            pv_prod_name = variant.product.name if variant.product else f"Variant #{it.product_variant_id}"
-            pv_size = variant.size_name
-            pv_label = pv_prod_name if not pv_size or pv_size.lower() == "standard" else f"{pv_prod_name} ({pv_size})"
+            pv_label = variant.product.name if variant.product else f"Variant #{it.product_variant_id}"
             _post_items_map[it.product_variant_id] = {"name": pv_label, "qty": it.quantity}
             # resolve active price
             pricing = (
@@ -1776,3 +1821,164 @@ def bulk_assign_delivery_tag(
         updated.append(order_id)
     db.commit()
     return {"updated": updated, "tag_id": payload.tag_id, "count": len(updated)}
+
+
+# ============================================================================
+# Admin Transactions Endpoints
+# ============================================================================
+
+def _admin_type(admin) -> str:
+    """Return 'legacy' for AdminUser table entries, 'google' for OAuth proxy."""
+    return "legacy" if isinstance(admin, AdminUser) else "google"
+
+
+def _admin_display_name(admin) -> str:
+    return (getattr(admin, "full_name", None) or getattr(admin, "username", None) or "Admin")
+
+
+@router.get("/admin-users-combined", response_model=List[AdminUserListItem])
+def list_all_admin_users_combined(
+    current_admin=Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Return all admins from both admin_users and users(role=admin) tables for recipient dropdown."""
+    result = []
+    legacy_users = db.query(AdminUser).filter(AdminUser.is_active == 1).order_by(AdminUser.full_name).all()
+    for u in legacy_users:
+        result.append(AdminUserListItem(
+            id=u.id,
+            admin_type="legacy",
+            display_name=u.full_name or u.username,
+            email=u.email,
+        ))
+    google_users = db.query(User).filter(User.role == "admin").order_by(User.name).all()
+    for u in google_users:
+        result.append(AdminUserListItem(
+            id=u.id,
+            admin_type="google",
+            display_name=u.name or u.email,
+            email=u.email,
+        ))
+    return result
+
+
+@router.post("/transactions", response_model=AdminTransactionOut)
+def create_transaction(
+    payload: AdminTransactionIn,
+    current_admin=Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Create a new transaction. The current admin is the sender."""
+    sender_type = _admin_type(current_admin)
+
+    # Resolve recipient display name
+    if payload.recipient_admin_type == "legacy":
+        recipient_user = db.query(AdminUser).filter(AdminUser.id == payload.recipient_id).first()
+        if not recipient_user:
+            raise HTTPException(status_code=404, detail="Recipient admin not found")
+        recipient_name = recipient_user.full_name or recipient_user.username
+    else:
+        recipient_user = db.query(User).filter(User.id == payload.recipient_id, User.role == "admin").first()
+        if not recipient_user:
+            raise HTTPException(status_code=404, detail="Recipient admin not found")
+        recipient_name = recipient_user.name or recipient_user.email
+
+    # Prevent self-transactions
+    if payload.recipient_id == current_admin.id and payload.recipient_admin_type == sender_type:
+        raise HTTPException(status_code=400, detail="Cannot create a transaction with yourself")
+
+    tx = AdminTransaction(
+        amount=payload.amount,
+        currency=payload.currency,
+        description=payload.description,
+        transaction_date=payload.transaction_date,
+        sender_id=current_admin.id,
+        sender_admin_type=sender_type,
+        sender_name=_admin_display_name(current_admin),
+        recipient_id=payload.recipient_id,
+        recipient_admin_type=payload.recipient_admin_type,
+        recipient_name=recipient_name,
+        status="pending",
+    )
+    db.add(tx)
+    db.commit()
+    db.refresh(tx)
+    return tx
+
+
+@router.get("/transactions", response_model=List[AdminTransactionOut])
+def list_transactions(
+    status: Optional[str] = Query(None),
+    current_admin=Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """List all transactions (history). Optionally filter by status."""
+    query = db.query(AdminTransaction)
+    if status:
+        query = query.filter(AdminTransaction.status == status)
+    return query.order_by(AdminTransaction.created_at.desc()).all()
+
+
+@router.get("/transactions/pending-for-me", response_model=List[AdminTransactionOut])
+def list_pending_for_me(
+    current_admin=Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Return pending transactions where current admin is the recipient."""
+    admin_type = _admin_type(current_admin)
+    return (
+        db.query(AdminTransaction)
+        .filter(
+            AdminTransaction.recipient_id == current_admin.id,
+            AdminTransaction.recipient_admin_type == admin_type,
+            AdminTransaction.status == "pending",
+        )
+        .order_by(AdminTransaction.created_at.desc())
+        .all()
+    )
+
+
+@router.put("/transactions/{tx_id}/approve", response_model=AdminTransactionOut)
+def approve_transaction(
+    tx_id: int,
+    current_admin=Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Approve a pending transaction. Only the recipient may approve."""
+    from datetime import datetime, timezone
+    tx = db.query(AdminTransaction).filter(AdminTransaction.id == tx_id).first()
+    if not tx:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    admin_type = _admin_type(current_admin)
+    if tx.recipient_id != current_admin.id or tx.recipient_admin_type != admin_type:
+        raise HTTPException(status_code=403, detail="Only the recipient can approve this transaction")
+    if tx.status != "pending":
+        raise HTTPException(status_code=400, detail=f"Transaction is already {tx.status}")
+    tx.status = "approved"
+    tx.approved_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(tx)
+    return tx
+
+
+@router.put("/transactions/{tx_id}/reject", response_model=AdminTransactionOut)
+def reject_transaction(
+    tx_id: int,
+    payload: AdminTransactionRejectIn,
+    current_admin=Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Reject a pending transaction. Only the recipient may reject."""
+    tx = db.query(AdminTransaction).filter(AdminTransaction.id == tx_id).first()
+    if not tx:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    admin_type = _admin_type(current_admin)
+    if tx.recipient_id != current_admin.id or tx.recipient_admin_type != admin_type:
+        raise HTTPException(status_code=403, detail="Only the recipient can reject this transaction")
+    if tx.status != "pending":
+        raise HTTPException(status_code=400, detail=f"Transaction is already {tx.status}")
+    tx.status = "rejected"
+    tx.rejection_reason = payload.rejection_reason
+    db.commit()
+    db.refresh(tx)
+    return tx

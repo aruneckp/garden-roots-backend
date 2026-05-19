@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database.connection import get_db
@@ -19,6 +20,7 @@ def get_config(db: Session = Depends(get_db)):
         banner_messages=data.get("banner_messages"),
         banner_statuses=data.get("banner_statuses"),
         uploaded_banners=data.get("uploaded_banners"),
+        self_collection_common_message=data.get("self_collection_common_message"),
     ))
 
 
@@ -30,12 +32,24 @@ def update_config(
     _admin=Depends(get_current_admin),
 ):
     """Update a config value. Requires admin auth."""
+    # Use Oracle MERGE to atomically insert-or-update without touching the
+    # GENERATED ALWAYS AS IDENTITY column (ORM INSERT would fail on first save).
+    db.execute(
+        text("""
+            MERGE INTO site_config sc
+            USING (SELECT :ck AS config_key FROM DUAL) src
+            ON (sc.config_key = src.config_key)
+            WHEN MATCHED THEN
+                UPDATE SET sc.config_value = :cv,
+                           sc.updated_at   = SYSTIMESTAMP
+            WHEN NOT MATCHED THEN
+                INSERT (config_key, config_value)
+                VALUES (:ck, :cv)
+        """),
+        {"ck": config_key, "cv": body.config_value},
+    )
+    db.commit()
     row = db.query(SiteConfig).filter(SiteConfig.config_key == config_key).first()
     if not row:
-        row = SiteConfig(config_key=config_key, config_value=body.config_value)
-        db.add(row)
-    else:
-        row.config_value = body.config_value
-    db.commit()
-    db.refresh(row)
+        raise HTTPException(status_code=500, detail="Config key not found after save")
     return APIResponse(data=SiteConfigOut.model_validate(row))

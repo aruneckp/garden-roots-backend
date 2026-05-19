@@ -512,6 +512,7 @@ def create_pickup_location(db: Session, location_data):
         capacity=location_data.capacity,
         collection_hours=location_data.collection_hours,
         notes=location_data.notes,
+        notification_message=location_data.notification_message,
     )
     db.add(location)
     db.commit()

@@ -107,8 +107,9 @@ class Order(Base):
     payment_intent_id   = Column(String(300))
     order_status        = Column(String(50), default="pending", index=True)
     delivery_address    = Column(String(500))
-    delivery_type       = Column(String(20), default="delivery", index=True)  # 'delivery' | 'pickup'
-    pickup_location_id  = Column(Integer, ForeignKey("pickup_locations.id"), nullable=True, index=True)
+    delivery_type           = Column(String(20), default="delivery", index=True)  # 'delivery' | 'pickup'
+    original_delivery_type  = Column(String(20))  # set at creation, never changed — detects pickup→delivery switch
+    pickup_location_id      = Column(Integer, ForeignKey("pickup_locations.id"), nullable=True, index=True)
     shipment_id         = Column(Integer, ForeignKey("shipments.id"), nullable=True, index=True)
     customer_notes      = Column(String(1000))
     delivery_feedback   = Column(String(2000))   # post-delivery comments from customer
@@ -327,9 +328,10 @@ class PickupLocation(Base):
     location_type   = Column(String(50), default="retail")
     capacity        = Column(Integer)
     current_boxes   = Column(Integer, default=0)
-    collection_hours  = Column(String(100))
-    is_active         = Column(Integer, default=1, index=True)
-    notes             = Column(String(1000))
+    collection_hours      = Column(String(100))
+    is_active             = Column(Integer, default=1, index=True)
+    notes                 = Column(String(1000))
+    notification_message  = Column(String(500))
     created_at        = Column(DateTime(timezone=True), default=_now)
     updated_at        = Column(DateTime(timezone=True), default=_now, onupdate=_now)
 
@@ -560,4 +562,33 @@ class PromoUsage(Base):
     promo         = relationship("PromoCode", back_populates="usages")
     user          = relationship("User")
     order         = relationship("Order")
+
+
+# ============================================================================
+# ADMIN TRANSACTIONS MODULE
+# ============================================================================
+
+class AdminTransaction(Base):
+    """Peer-to-peer transactions recorded between admin users, requiring recipient approval."""
+    __tablename__ = "admin_transactions"
+
+    id                   = Column(Integer, primary_key=True, index=True)
+    amount               = Column(Numeric(15, 2), nullable=False)
+    currency             = Column(String(10), default="SGD", nullable=False)
+    description          = Column(Text, nullable=False)
+    transaction_date     = Column(Date, nullable=False)
+    # Sender — stores ID + type because admins live in two tables (admin_users vs users)
+    sender_id            = Column(Integer, nullable=False, index=True)
+    sender_admin_type    = Column(String(20), nullable=False, default="legacy")  # 'legacy' | 'google'
+    sender_name          = Column(String(150), nullable=False)
+    # Recipient
+    recipient_id         = Column(Integer, nullable=False, index=True)
+    recipient_admin_type = Column(String(20), nullable=False, default="legacy")
+    recipient_name       = Column(String(150), nullable=False)
+    # Approval workflow
+    status               = Column(String(20), default="pending", nullable=False, index=True)  # pending | approved | rejected
+    approved_at          = Column(DateTime(timezone=True), nullable=True)
+    rejection_reason     = Column(Text, nullable=True)
+    created_at           = Column(DateTime(timezone=True), default=_now)
+    updated_at           = Column(DateTime(timezone=True), default=_now, onupdate=_now)
 

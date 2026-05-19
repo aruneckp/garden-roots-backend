@@ -230,6 +230,7 @@ class PickupLocationIn(BaseModel):
     capacity: int = 100
     collection_hours: Optional[str] = None
     notes: Optional[str] = None
+    notification_message: Optional[str] = None
 
 
 class PickupLocationOut(BaseModel):
@@ -248,6 +249,7 @@ class PickupLocationOut(BaseModel):
     collection_hours: Optional[str] = None
     is_active: int
     notes: Optional[str] = None
+    notification_message: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -263,6 +265,7 @@ class PickupLocationUpdate(BaseModel):
     collection_hours: Optional[str] = None
     notes: Optional[str] = None
     is_active: Optional[int] = None
+    notification_message: Optional[str] = None
 
 
 class PickupLocationOccupancy(BaseModel):
@@ -499,4 +502,54 @@ class DeliveryTagOut(BaseModel):
 class OrderBulkTagIn(BaseModel):
     order_ids: List[int]
     tag_id:    Optional[int] = None   # None to clear tag
+
+
+class OrderRefsIn(BaseModel):
+    order_refs: List[str]
+
+
+# ============================================================================
+# Admin Transactions Schemas
+# ============================================================================
+
+class AdminUserListItem(BaseModel):
+    """Represents a single admin user entry for dropdowns."""
+    id:           int
+    admin_type:   str   # 'legacy' | 'google'
+    display_name: str
+    email:        Optional[str] = None
+
+
+class AdminTransactionIn(BaseModel):
+    amount:               Decimal
+    currency:             str = "SGD"
+    description:          str
+    transaction_date:     date
+    recipient_id:         int
+    recipient_admin_type: str = "legacy"   # 'legacy' | 'google'
+
+
+class AdminTransactionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id:                   int
+    amount:               Decimal
+    currency:             str
+    description:          str
+    transaction_date:     date
+    sender_id:            int
+    sender_admin_type:    str
+    sender_name:          str
+    recipient_id:         int
+    recipient_admin_type: str
+    recipient_name:       str
+    status:               str
+    approved_at:          Optional[datetime] = None
+    rejection_reason:     Optional[str] = None
+    created_at:           datetime
+    updated_at:           datetime
+
+
+class AdminTransactionRejectIn(BaseModel):
+    rejection_reason: Optional[str] = None
 

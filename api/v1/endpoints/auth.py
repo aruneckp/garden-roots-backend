@@ -50,14 +50,19 @@ class AuthResponse(BaseModel):
 @router.post("/google", response_model=AuthResponse)
 def google_login(payload: GoogleTokenIn, db: Session = Depends(get_db)):
     """Verify Google ID token, create or find user, return our JWT."""
+    if not settings.google_client_id:
+        logger.error("GOOGLE_CLIENT_ID is not configured — set it in .env")
+        raise HTTPException(status_code=503, detail="Google login not configured")
+
     try:
         id_info = id_token.verify_oauth2_token(
             payload.id_token,
             google_requests.Request(),
             settings.google_client_id,
+            clock_skew_in_seconds=10,
         )
-    except ValueError as exc:
-        logger.warning("Google token verification failed: %s", exc)
+    except Exception as exc:
+        logger.warning("Google token verification failed (%s): %s", type(exc).__name__, exc)
         raise HTTPException(status_code=401, detail="Invalid Google token")
 
     google_id = id_info.get("sub")

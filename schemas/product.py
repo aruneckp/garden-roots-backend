@@ -27,7 +27,6 @@ class VariantOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    size_name: str
     unit: str
     price: Optional[Decimal] = None
     currency: str = "USD"

@@ -34,7 +34,6 @@ def _build_variant_out(variant: ProductVariant) -> VariantOut:
     price, currency = _current_price(variant)
     return VariantOut(
         id=variant.id,
-        size_name=variant.size_name,
         unit=variant.unit,
         price=price,
         currency=currency,

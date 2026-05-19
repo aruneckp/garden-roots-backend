@@ -113,6 +113,7 @@ def create_order(db: Session, payload: OrderIn, booked_by_admin=None) -> OrderOu
         payment_status="pending",
         order_status="confirmed" if is_pay_later else "pending",
         delivery_type=payload.delivery_type,
+        original_delivery_type=payload.delivery_type,
         delivery_address=payload.delivery_address,
         pickup_location_id=payload.pickup_location_id,
         customer_notes=payload.customer_notes,

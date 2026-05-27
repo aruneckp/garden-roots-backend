@@ -385,7 +385,3 @@ CREATE TABLE box_entry_logs (
     CONSTRAINT fk_bel_admin      FOREIGN KEY (changed_by)
         REFERENCES admin_users (id)
 );
-
---PROMPT ----------------------------------------------------------
---PROMPT  All 17 tables created successfully.
---PROMPT ----------------------------------------------------------
